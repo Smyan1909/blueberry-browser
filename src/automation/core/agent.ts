@@ -28,15 +28,16 @@ export class BrowserAgent {
     }
 
     async plan(goal: string) {
-        this.memory = new MemoryManager(this.llm);
+        
         this.memory.add('user', `GOAL: ${goal}`);
         this.emit('thought', `Analyzing request: "${goal}"`);
 
-        const intent = await this.classifyIntent(goal);
+        const history = await this.memory.getContext();
+        const intent = await this.classifyIntent(history);
 
         if (!intent.needsBrowsing){
 
-            await this.streamDirectAnswer(goal);
+            await this.streamDirectAnswer();
 
             this.currentPlan = {
                 id: `plan-${Date.now()}`,
@@ -80,7 +81,7 @@ export class BrowserAgent {
         return this.currentPlan;
     }
 
-    private async classifyIntent(goal: string): Promise<{ needsBrowsing: boolean }> {
+    private async classifyIntent(history: any[]): Promise<{ needsBrowsing: boolean }> {
         const response = await this.llm.generate([
           { 
             role: 'system', 
@@ -89,7 +90,7 @@ export class BrowserAgent {
     - true: if the user asks to perform an action on the web, find current real-time data, or interact with a site.
     - false: if the user asks a general knowledge question, a calculation, or code generation that doesn't need external data.` 
           },
-          { role: 'user', content: goal }
+          ...history
         ], [], true); // Force JSON mode
     
         try {
@@ -281,12 +282,26 @@ export class BrowserAgent {
     }
 
     // New helper to handle streaming for both simple and complex paths
-    private async streamDirectAnswer(goal: string) {
-        const context = [
-            { role: 'system', content: 'You are a helpful assistant. Answer the user request directly.'},
-            { role: 'user', content: goal}
-        ] as any;
-        return this.streamToUI(context);
+    private async streamDirectAnswer() {
+        const context = await this.memory.getContext();
+        // Inject system prompt if not present
+        if (context[0].role !== 'system') {
+            context.unshift({ role: 'system', content: 'You are a helpful assistant.' });
+        }
+        
+        const stream = this.llm.stream(context);
+        let fullText = '';
+        
+        for await (const chunk of stream) {
+            fullText += chunk;
+            this.emit('result_stream', chunk);
+        }
+        
+        // Add the ASSISTANT'S response to memory so we remember what we said!
+        this.memory.add('assistant', fullText);
+        
+        this.emit('result', fullText);
+        return fullText;
     }
 
     private async streamToUI(context: any[]) {
