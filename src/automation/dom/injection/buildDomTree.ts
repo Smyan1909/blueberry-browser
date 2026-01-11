@@ -40,16 +40,27 @@ export function buildDomTree(doHighlight: boolean = false): any {
 
 function recursiveTraverse(node: Element, parentId?: number): ElementData | null {
 
+    // Skip blueberry UI elements (overlay, cursor, highlights) - they should not be in the DOM tree
+    const nodeId = node.id;
+    if (nodeId && (
+        nodeId === 'blueberry-spectator-overlay' ||
+        nodeId === 'blueberry-cursor' ||
+        nodeId === 'blueberry-highlight-container' ||
+        nodeId.startsWith('blueberry-')
+    )) {
+        return null;
+    }
+
     const rect = node.getBoundingClientRect();
     const style = window.getComputedStyle(node);
 
-    const isVisible = 
+    const isVisible =
         style.display !== 'none' &&
         style.visibility !== 'hidden' &&
         style.opacity !== '0' &&
         rect.width > 0 &&
         rect.height > 0;
-    
+
     if (!isVisible) return null;
 
     const isInteractive = checkInteractivity(node, style);
@@ -97,7 +108,7 @@ function recursiveTraverse(node: Element, parentId?: number): ElementData | null
     if (text.length > MAX_TEXT) {
         text = text.substring(0, MAX_TEXT) + '...[truncated]';
     }
-    
+
     return {
         nodeId: currentId,
         tagName: node.tagName.toLowerCase(),
@@ -112,12 +123,12 @@ function recursiveTraverse(node: Element, parentId?: number): ElementData | null
         parentId,
         children: childrenData.length > 0 ? childrenData : undefined,
     };
-    
+
 }
 
 function checkInteractivity(node: Element, style: CSSStyleDeclaration): boolean {
     const tagName = node.tagName.toLowerCase();
-  
+
     // Semantic Interactive Elements
     if (['button', 'a', 'input', 'select', 'textarea', 'details', 'summary'].includes(tagName)) return true;
 
@@ -132,7 +143,7 @@ function checkInteractivity(node: Element, style: CSSStyleDeclaration): boolean 
 
     // Visual Cues
     if (style.cursor === 'pointer' || style.cursor === 'hand') return true;
-    
+
     // Form Labels are interactive because clicking them focuses the input
     if (tagName === 'label') return true;
 
@@ -141,18 +152,18 @@ function checkInteractivity(node: Element, style: CSSStyleDeclaration): boolean 
 
 function getRelevantAttributes(node: Element): Record<string, string> {
     const attrs: Record<string, string> = {};
-  
+
     const core = ['id', 'class', 'name', 'type', 'placeholder', 'title', 'alt', 'href', 'src'];
-    
+
     // Properties that should be read from the live DOM object, not attributes
     const liveProps = ['value', 'checked', 'selected', 'disabled', 'readonly'];
-  
+
     const states = [
-      'role', 
-      'aria-label', 'aria-labelledby', 'aria-describedby',
-      'aria-hidden', 'aria-expanded', 'aria-checked', 'aria-selected', 'aria-disabled'
+        'role',
+        'aria-label', 'aria-labelledby', 'aria-describedby',
+        'aria-hidden', 'aria-expanded', 'aria-checked', 'aria-selected', 'aria-disabled'
     ];
-  
+
 
     [...core, ...states].forEach(attr => {
         if (node.hasAttribute(attr)) {
@@ -169,7 +180,7 @@ function getRelevantAttributes(node: Element): Record<string, string> {
             if (typeof val === 'string' && val.length > 0) attrs[prop] = val;
         }
     });
-  
+
     return attrs;
 }
 
@@ -191,7 +202,7 @@ function drawHighlights() {
 
         const rect = node.getBoundingClientRect();
 
-        if ( rect.width === 0 || rect.height === 0) return;
+        if (rect.width === 0 || rect.height === 0) return;
 
         const box = document.createElement('div');
         Object.assign(box.style, {

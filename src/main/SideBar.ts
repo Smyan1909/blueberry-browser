@@ -1,12 +1,10 @@
 import { is } from "@electron-toolkit/utils";
 import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
-import { LLMClient } from "./LLMClient";
 
 export class SideBar {
   private webContentsView: WebContentsView;
   private baseWindow: BaseWindow;
-  private llmClient: LLMClient;
   private isVisible: boolean = true;
 
   constructor(baseWindow: BaseWindow) {
@@ -14,9 +12,6 @@ export class SideBar {
     this.webContentsView = this.createWebContentsView();
     baseWindow.contentView.addChildView(this.webContentsView);
     this.setupBounds();
-
-    // Initialize LLM client
-    this.llmClient = new LLMClient(this.webContentsView.webContents);
   }
 
   private createWebContentsView(): WebContentsView {
@@ -74,10 +69,6 @@ export class SideBar {
 
   get view(): WebContentsView {
     return this.webContentsView;
-  }
-
-  get client(): LLMClient {
-    return this.llmClient;
   }
 
   show(): void {

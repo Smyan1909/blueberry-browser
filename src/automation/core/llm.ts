@@ -2,9 +2,30 @@
 
 import { z } from 'zod';
 
+/**
+ * Content part for multimodal messages
+ */
+export interface TextContent {
+    type: 'text';
+    text: string;
+}
+
+export interface ImageContent {
+    type: 'image';
+    image: {
+        data: string;  // base64 encoded
+        mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    };
+}
+
+export type MessageContent = TextContent | ImageContent;
+
+/**
+ * Chat message that supports both simple text and multimodal content
+ */
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
-    content: string;
+    content: string | MessageContent[];
 }
 
 export interface ToolDefinition {

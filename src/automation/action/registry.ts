@@ -38,17 +38,19 @@ async function safeExecute(
 }
 
 export const ActionRegistry = {
-  
+
   // --- NAVIGATION ---
-  
+
   navigate: {
     name: 'navigate',
     description: 'Go to a specific URL.',
     schema: z.object({
       url: z.string(),
     }),
-    execute: async ({ url }, { page }) => {
+    execute: async (params, { page }) => {
       return safeExecute(async () => {
+        const { url } = params || {};
+        if (!url) throw new Error(`Missing required parameter 'url'. Received: ${JSON.stringify(params)}`);
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         return `Navigated to ${url}`;
       });
@@ -83,46 +85,49 @@ export const ActionRegistry = {
 
   click: {
     name: 'click_element',
-    description: 'Click on an interactive element identified by its numeric ID.',
+    description: 'Click on an interactive element identified by its numeric ID. The ID is shown in the screenshot overlay.',
     schema: z.object({
       index: z.number().describe('The numeric ID of the element to click'),
       open_in_new_tab: z.boolean().optional().default(false).describe('If true, holds Control/Command to open in a new tab')
     }),
-    execute: async ({ index, open_in_new_tab }, { selectorMap, domService }) => {
+    execute: async (params, { selectorMap, domService }) => {
       return safeExecute(async () => {
+        // Defensive: ensure params is an object and extract with defaults
+        const { index, open_in_new_tab = false } = params || {};
+        if (index === undefined || index === null) {
+          throw new Error(`Missing required parameter 'index'. Received params: ${JSON.stringify(params)}`);
+        }
+
         const element = selectorMap.get(index);
         if (!element) throw new Error(`Element #${index} not found (stale).`);
 
-        try { await element.scrollIntoViewIfNeeded(); } catch (e) {}
+        // Scroll element into view if needed
+        try { await element.scrollIntoViewIfNeeded(); } catch (e) { }
 
-        // --- VISUALIZATION MAGIC ---
-        // 1. Get the center coordinates of the element
+        // Small wait for scroll animation to complete
+        await new Promise(r => setTimeout(r, 100));
+
+        // Get FRESH bounding box AFTER scrolling (important!)
         const box = await element.boundingBox();
         if (box) {
           const x = box.x + box.width / 2;
           const y = box.y + box.height / 2;
-          
-          // 2. Move the Fake Cursor there
+
+          // Move the Fake Cursor there
           await domService.highlightClick(x, y);
-          
-          // 3. Human delay to let the user see the cursor arrive
-          await new Promise(r => setTimeout(r, 500)); 
+
+          // Brief delay to let the user see the cursor
+          await new Promise(r => setTimeout(r, 200));
         }
 
         const modifiers: ('Control' | 'Meta')[] = open_in_new_tab ? ['Control', 'Meta'] : [];
-        
-        // We use the specific modifier for the OS (Meta for Mac, Ctrl for Win/Linux)
-        // Playwright usually handles 'Control' well, but 'Meta' is safer for Mac agents.
-        // Ideally we detect OS, but passing both is a safe fallback for "Command/Control".
+
         if (open_in_new_tab) {
-             // For precision, we usually just need one modifier based on platform
-             // But for simplicity in this snippet, we'll assume Control which works on most Linux/Windows
-             // and usually maps to Command in headless Mac environments.
-             await element.click({ modifiers: modifiers });
-             return `Ctrl+Clicked element #${index} (opened in new tab)`;
+          await element.click({ modifiers: modifiers });
+          return `Ctrl+Clicked element #${index} (opened in new tab)`;
         } else {
-             await element.click();
-             return `Clicked element #${index}`;
+          await element.click();
+          return `Clicked element #${index}`;
         }
       });
     }
@@ -137,18 +142,27 @@ export const ActionRegistry = {
       clear: z.boolean().optional().default(true),
       submit: z.boolean().optional().default(false)
     }),
-    execute: async ({ index, text, clear, submit }, { selectorMap, page }) => {
+    execute: async (params, { selectorMap, page }) => {
       return safeExecute(async () => {
+        // Defensive: ensure params is an object and extract with defaults
+        const { index, text, clear = true, submit = false } = params || {};
+        if (index === undefined || index === null) {
+          throw new Error(`Missing required parameter 'index'. Received params: ${JSON.stringify(params)}`);
+        }
+        if (text === undefined || text === null) {
+          throw new Error(`Missing required parameter 'text'. Received params: ${JSON.stringify(params)}`);
+        }
+
         const element = selectorMap.get(index);
         if (!element) throw new Error(`Element #${index} not found.`);
 
-        try { await element.scrollIntoViewIfNeeded(); } catch (e) {}
+        try { await element.scrollIntoViewIfNeeded(); } catch (e) { }
 
         // Safety: If the element is a <select>, typing might fail or select options.
         // We can add a check here, but standard typing usually works for search/comboboxes.
-        
+
         if (clear) await element.fill('');
-        await element.type(text, { delay: 50 });
+        await element.type(String(text), { delay: 50 });
 
         if (submit) {
           await page.keyboard.press('Enter');
@@ -166,8 +180,9 @@ export const ActionRegistry = {
       direction: z.enum(['up', 'down']).default('down'),
       amount: z.number().optional().default(500)
     }),
-    execute: async ({ direction, amount }, { page }) => {
+    execute: async (params, { page }) => {
       return safeExecute(async () => {
+        const { direction = 'down', amount = 500 } = params || {};
         const pixels = direction === 'down' ? amount : -amount;
         await page.evaluate((y) => window.scrollBy(0, y), pixels);
         await page.waitForTimeout(500);
@@ -184,8 +199,10 @@ export const ActionRegistry = {
     schema: z.object({
       url: z.string()
     }),
-    execute: async ({ url }, { page }) => {
+    execute: async (params, { page }) => {
       return safeExecute(async () => {
+        const { url } = params || {};
+        if (!url) throw new Error(`Missing required parameter 'url'. Received: ${JSON.stringify(params)}`);
         const context = page.context();
         const newPage = await context.newPage();
         await newPage.goto(url);
@@ -200,8 +217,12 @@ export const ActionRegistry = {
     schema: z.object({
       page_index: z.number()
     }),
-    execute: async ({ page_index }, { page }) => {
+    execute: async (params, { page }) => {
       return safeExecute(async () => {
+        const { page_index } = params || {};
+        if (page_index === undefined || page_index === null) {
+          throw new Error(`Missing required parameter 'page_index'. Received: ${JSON.stringify(params)}`);
+        }
         const context = page.context();
         const pages = context.pages();
         if (page_index < 0 || page_index >= pages.length) {
@@ -218,15 +239,36 @@ export const ActionRegistry = {
 
   extract: {
     name: 'extract_content',
-    description: 'Extract specific information from the current page text.',
+    description: 'Extract text content from the current page. Use this when you need to read article text, paragraphs, or other non-interactive content.',
     schema: z.object({
-      goal: z.string()
+      goal: z.string().describe('What information are you trying to extract (e.g., "main article text", "product description")')
     }),
-    execute: async ({ goal }) => {
-        return { 
-            success: true, 
-            output: `Intent to extract "${goal}" recorded.` 
-        };
+    execute: async (params, { page }) => {
+      return safeExecute(async () => {
+        const { goal } = params || {};
+        if (!goal) throw new Error(`Missing required parameter 'goal'. Received: ${JSON.stringify(params)}`);
+
+        // Extract visible text from the page body
+        const pageText = await page.evaluate(() => {
+          // Get main content areas first, fall back to body
+          const mainContent = document.querySelector('main, article, [role="main"], .content, #content') as HTMLElement | null;
+          const element = mainContent || document.body;
+
+          // Get text content
+          const text = element.innerText || element.textContent || '';
+
+          // Clean up whitespace
+          return text.replace(/\s+/g, ' ').trim();
+        });
+
+        // Truncate to avoid context overflow (8000 chars ≈ 2000 tokens)
+        const MAX_CONTENT = 8000;
+        const truncated = pageText.length > MAX_CONTENT
+          ? pageText.substring(0, MAX_CONTENT) + '...[truncated]'
+          : pageText;
+
+        return `Extracted page content for "${goal}":\n\n${truncated}`;
+      });
     }
   } as ActionTool<{ goal: string }>,
 
@@ -237,7 +279,8 @@ export const ActionRegistry = {
       success: z.boolean(),
       summary: z.string()
     }),
-    execute: async ({ success, summary }) => {
+    execute: async (params) => {
+      const { success = false, summary = 'No summary provided' } = params || {};
       return { success, output: summary };
     }
   } as ActionTool<{ success: boolean; summary: string }>
@@ -245,9 +288,9 @@ export const ActionRegistry = {
 };
 
 export function getToolDefinitions() {
-    return Object.values(ActionRegistry).map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.schema 
-    }));
+  return Object.values(ActionRegistry).map(tool => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.schema
+  }));
 }

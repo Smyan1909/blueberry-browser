@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Square, Sparkles, Plus } from 'lucide-react'
+import { ArrowUp, Square, Sparkles, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -150,6 +150,186 @@ const LoadingIndicator: React.FC = () => {
     )
 }
 
+// Task status icon component
+const TaskStatusIcon: React.FC<{ status: string }> = ({ status }) => {
+    switch (status) {
+        case 'completed':
+            return <CheckCircle2 className="size-4 text-green-500" />
+        case 'running':
+            return <Loader2 className="size-4 text-blue-500 animate-spin" />
+        case 'failed':
+            return <XCircle className="size-4 text-red-500" />
+        case 'blocked':
+            return <Clock className="size-4 text-yellow-500" />
+        case 'pending':
+        default:
+            return <Circle className="size-4 text-muted-foreground" />
+    }
+}
+
+// Plan task item component
+interface Task {
+    id: string
+    description: string
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked'
+    dependencies: string[]
+}
+
+const PlanTaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => (
+    <div className={cn(
+        "flex items-start gap-3 py-2 px-3 rounded-lg transition-colors",
+        task.status === 'running' && "bg-blue-500/10",
+        task.status === 'completed' && "opacity-70"
+    )}>
+        <div className="mt-0.5">
+            <TaskStatusIcon status={task.status} />
+        </div>
+        <div className="flex-1 min-w-0">
+            <p className={cn(
+                "text-sm",
+                task.status === 'completed' && "line-through text-muted-foreground",
+                task.status === 'running' && "text-foreground font-medium"
+            )}>
+                {task.description}
+            </p>
+        </div>
+    </div>
+)
+
+// Plan visualization component
+interface Plan {
+    id: string
+    goal: string
+    status: 'active' | 'completed' | 'pending'
+    tasks: Task[]
+    createdAt: number
+}
+
+interface AgentThought {
+    agentId: string
+    message: string
+    timestamp: number
+}
+
+const PlanVisualization: React.FC<{ 
+    plan: Plan; 
+    thoughts: AgentThought[];
+    isAwaitingApproval?: boolean;
+    onApprove?: () => void;
+    onRevise?: (feedback: string) => void;
+}> = ({ plan, thoughts, isAwaitingApproval, onApprove, onRevise }) => {
+    const [revisionFeedback, setRevisionFeedback] = useState('')
+    const [showRevisionInput, setShowRevisionInput] = useState(false)
+    const latestThought = thoughts[thoughts.length - 1]
+    const completedCount = plan.tasks.filter(t => t.status === 'completed').length
+    const totalCount = plan.tasks.length
+    const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
+
+    const handleReviseSubmit = () => {
+        if (revisionFeedback.trim() && onRevise) {
+            onRevise(revisionFeedback.trim())
+            setRevisionFeedback('')
+            setShowRevisionInput(false)
+        }
+    }
+
+    return (
+        <div className="animate-fade-in rounded-2xl border border-border bg-muted/30 dark:bg-muted/20 overflow-hidden">
+            {/* Plan Header */}
+            <div className="px-4 py-3 border-b border-border bg-muted/50">
+                <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-foreground">Execution Plan</h4>
+                    <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-full",
+                        isAwaitingApproval && "bg-yellow-500/20 text-yellow-500",
+                        !isAwaitingApproval && plan.status === 'active' && "bg-blue-500/20 text-blue-500",
+                        plan.status === 'completed' && "bg-green-500/20 text-green-500"
+                    )}>
+                        {isAwaitingApproval ? 'Awaiting Approval' : plan.status}
+                    </span>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div 
+                        className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
+                        style={{ width: `${progress}%` }}
+                    />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                    {completedCount} of {totalCount} tasks completed
+                </p>
+            </div>
+
+            {/* Tasks List */}
+            <div className="divide-y divide-border/50">
+                {plan.tasks.map((task, index) => (
+                    <PlanTaskItem key={task.id} task={task} index={index} />
+                ))}
+            </div>
+
+            {/* Approval Buttons - shown when plan is awaiting approval */}
+            {isAwaitingApproval && (
+                <div className="px-4 py-3 border-t border-border bg-muted/50">
+                    {showRevisionInput ? (
+                        <div className="space-y-2">
+                            <textarea
+                                value={revisionFeedback}
+                                onChange={(e) => setRevisionFeedback(e.target.value)}
+                                placeholder="Describe how you'd like to modify the plan..."
+                                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                rows={2}
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleReviseSubmit}
+                                    disabled={!revisionFeedback.trim()}
+                                    className="flex-1 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+                                >
+                                    Submit Revision
+                                </button>
+                                <button
+                                    onClick={() => setShowRevisionInput(false)}
+                                    className="px-3 py-1.5 text-sm bg-muted text-foreground rounded-lg hover:bg-muted/80"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex gap-2">
+                            <button
+                                onClick={onApprove}
+                                className="flex-1 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-2"
+                            >
+                                <CheckCircle2 className="size-4" />
+                                Approve & Execute
+                            </button>
+                            <button
+                                onClick={() => setShowRevisionInput(true)}
+                                className="flex-1 px-4 py-2 text-sm bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium"
+                            >
+                                Revise Plan
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Latest Thought - only show when not awaiting approval */}
+            {!isAwaitingApproval && latestThought && (
+                <div className="px-4 py-3 border-t border-border bg-muted/30">
+                    <div className="flex items-start gap-2">
+                        <Brain className="size-4 text-primary mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-muted-foreground italic line-clamp-2">
+                            {latestThought.message}
+                        </p>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 // Chat Input Component with pill design
 const ChatInput: React.FC<{
     onSend: (message: string) => void
@@ -244,16 +424,33 @@ interface ConversationTurn {
 const ConversationTurnComponent: React.FC<{
     turn: ConversationTurn
     isLoading?: boolean
-}> = ({ turn, isLoading }) => (
+    plan?: Plan | null
+    thoughts?: AgentThought[]
+    isAwaitingApproval?: boolean
+    onApprove?: () => void
+    onRevise?: (feedback: string) => void
+}> = ({ turn, isLoading, plan, thoughts = [], isAwaitingApproval, onApprove, onRevise }) => (
     <div className="pt-12 flex flex-col gap-8">
         {turn.user && <UserMessage content={turn.user.content} />}
+        
+        {/* Show plan visualization when there's an active plan */}
+        {plan && (plan.status === 'active' || isAwaitingApproval) && (
+            <PlanVisualization 
+                plan={plan} 
+                thoughts={thoughts} 
+                isAwaitingApproval={isAwaitingApproval}
+                onApprove={onApprove}
+                onRevise={onRevise}
+            />
+        )}
+        
         {turn.assistant && (
             <AssistantMessage
                 content={turn.assistant.content}
                 isStreaming={turn.assistant.isStreaming}
             />
         )}
-        {isLoading && (
+        {isLoading && !plan && (
             <div className="flex justify-start">
                 <LoadingIndicator />
             </div>
@@ -263,7 +460,7 @@ const ConversationTurnComponent: React.FC<{
 
 // Main Chat Component
 export const Chat: React.FC = () => {
-    const { messages, isLoading, sendMessage, clearChat } = useChat()
+    const { messages, isLoading, sendMessage, clearChat, currentPlan, agentThoughts, isPlanAwaitingApproval, approvePlan, revisePlan } = useChat()
     const scrollRef = useAutoScroll(messages)
 
     // Group messages into conversation turns
@@ -329,6 +526,22 @@ export const Chat: React.FC = () => {
                                         showLoadingAfterLastTurn &&
                                         index === conversationTurns.length - 1
                                     }
+                                    plan={
+                                        index === conversationTurns.length - 1
+                                            ? currentPlan
+                                            : null
+                                    }
+                                    thoughts={
+                                        index === conversationTurns.length - 1
+                                            ? agentThoughts
+                                            : []
+                                    }
+                                    isAwaitingApproval={
+                                        index === conversationTurns.length - 1 &&
+                                        isPlanAwaitingApproval
+                                    }
+                                    onApprove={approvePlan}
+                                    onRevise={revisePlan}
                                 />
                             ))}
                         </>

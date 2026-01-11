@@ -1,7 +1,8 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { generateText, streamText, tool, type LanguageModel } from 'ai';
-import { LLMProvider, ChatMessage, LLMResponse, ToolDefinition } from '../core/llm';
+import { generateText, streamText, tool, jsonSchema, type LanguageModel } from 'ai';
+import { z } from 'zod';
+import { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, MessageContent } from '../core/llm';
 
 export type LLMVendor = 'openai' | 'anthropic';
 
@@ -25,15 +26,21 @@ export class UnifiedLLMProvider implements LLMProvider {
   ): Promise<LLMResponse> {
     
     // 1. Map Tools (Agent Schema -> Vercel Schema)
+    // AI SDK v5 uses 'inputSchema' instead of 'parameters'
     let vercelTools: Record<string, any> | undefined = undefined;
 
     if (tools && tools.length > 0) {
       vercelTools = tools.reduce((acc, t) => {
+        // Convert Zod schema to JSON Schema and remove $schema property for compatibility
+        const jsonSchemaObj = z.toJSONSchema(t.parameters) as Record<string, any>;
+        // Remove $schema as some providers don't support draft 2020-12
+        delete jsonSchemaObj['$schema'];
+        
         acc[t.name] = tool({
           description: t.description,
-          // FIX 1: Cast to 'any' to bypass strict Zod type inference issues in the loop
-          parameters: t.parameters, 
-        } as any);
+          // Use jsonSchema wrapper with inputSchema for AI SDK v5
+          inputSchema: jsonSchema(jsonSchemaObj),
+        });
         return acc;
       }, {} as Record<string, any>);
     }
@@ -47,16 +54,28 @@ export class UnifiedLLMProvider implements LLMProvider {
     });
 
     // 3. Map Result back to Agent Schema
-    const toolCalls = result.toolCalls?.map(tc => ({
-      id: tc.toolCallId,
-      name: tc.toolName,
-      // FIX 2: Cast to 'any' because TS might not infer 'args' exists on a dynamic tool call
-      arguments: (tc as any).args
-    }));
+    // Debug: log raw tool calls to see actual structure
+    if (result.toolCalls && result.toolCalls.length > 0) {
+      console.log('[LLM Provider] Raw tool calls:', JSON.stringify(result.toolCalls, null, 2));
+    }
+    
+    const toolCalls = result.toolCalls?.map(tc => {
+      const tcAny = tc as any;
+      // Try multiple possible property names for arguments
+      const args = tcAny.args ?? tcAny.arguments ?? tcAny.input ?? {};
+      
+      console.log(`[LLM Provider] Tool ${tc.toolName}: args=${JSON.stringify(args)}`);
+      
+      return {
+        id: tc.toolCallId,
+        name: tc.toolName,
+        arguments: args
+      };
+    });
 
     return {
       content: result.text || "",
-      // FIX 3: Return '[]' instead of undefined to satisfy strict ToolCall[] type if needed
+      // Return '[]' instead of undefined to satisfy strict ToolCall[] type if needed
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : []
     };
   }
@@ -72,10 +91,39 @@ export class UnifiedLLMProvider implements LLMProvider {
     }
   }
 
-  private convertToCoreMessages(history: ChatMessage[]) {
-    return history.map(msg => ({
-      role: msg.role as 'system' | 'user' | 'assistant',
-      content: msg.content
-    }));
+  /**
+   * Convert chat messages to Vercel AI SDK core message format.
+   * Handles both simple string content and multimodal content (text + images).
+   */
+  private convertToCoreMessages(history: ChatMessage[]): any[] {
+    return history.map(msg => {
+      // Simple string content
+      if (typeof msg.content === 'string') {
+        return {
+          role: msg.role,
+          content: msg.content
+        };
+      }
+      
+      // Multimodal content (array of text/image parts)
+      const contentParts = (msg.content as MessageContent[]).map(part => {
+        if (part.type === 'text') {
+          return { type: 'text', text: part.text };
+        }
+        if (part.type === 'image') {
+          // Vercel AI SDK expects image as data URL or URL string
+          return { 
+            type: 'image', 
+            image: `data:${part.image.mediaType};base64,${part.image.data}`
+          };
+        }
+        return null;
+      }).filter(Boolean);
+
+      return {
+        role: msg.role,
+        content: contentParts
+      };
+    });
   }
 }

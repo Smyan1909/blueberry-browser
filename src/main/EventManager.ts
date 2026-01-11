@@ -1,5 +1,6 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
+import { handleChatMessage, clearChatMessages, getChatMessages } from "./agent-handler";
 
 export class EventManager {
   private mainWindow: Window;
@@ -157,21 +158,25 @@ export class EventManager {
       return true;
     });
 
-    // Chat message
+    // Chat message - route to agent handler
     ipcMain.handle("sidebar-chat-message", async (_, request) => {
-      // The LLMClient now handles getting the screenshot and context directly
-      await this.mainWindow.sidebar.client.sendChatMessage(request);
+      try {
+        await handleChatMessage(request.message);
+      } catch (error: any) {
+        console.error("[EventManager] Error handling chat message:", error);
+        throw error;
+      }
     });
 
-    // Clear chat
+    // Clear chat - route to agent handler
     ipcMain.handle("sidebar-clear-chat", () => {
-      this.mainWindow.sidebar.client.clearMessages();
+      clearChatMessages();
       return true;
     });
 
-    // Get messages
+    // Get messages - route to agent handler
     ipcMain.handle("sidebar-get-messages", () => {
-      return this.mainWindow.sidebar.client.getMessages();
+      return getChatMessages();
     });
   }
 
