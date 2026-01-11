@@ -179,17 +179,19 @@ export class BrowserAgent {
                 this.emit('thought', `[Agent ${pathIndex}] Executing task ${task.id}: "${task.description}"`);
                 this.emit('plan', 'Task running', this.currentPlan);
 
-                const success = await this.runThinkActObserveLoop(
+                const result = await this.runThinkActObserveLoop(
                     workerPage,
                     workerDom,
                     task.description
                 );
 
-                task.status = success ? 'completed' : 'failed';
-                this.emit('thought', `[Agent ${pathIndex}] Task ${task.id} ${success ? 'completed' : 'failed'}`);
+                task.status = result.success ? 'completed' : 'failed';
+                // Store the result summary on the task for final summary generation
+                (task as any).result = result.summary;
+                this.emit('thought', `[Agent ${pathIndex}] Task ${task.id} ${result.success ? 'completed' : 'failed'}`);
                 this.emit('plan', 'Task updated', this.currentPlan);
 
-                if (!success) {
+                if (!result.success) {
                     // Mark remaining tasks in this path as failed
                     const remainingIndex = path.indexOf(task) + 1;
                     path.slice(remainingIndex).forEach(t => t.status = 'failed');
@@ -249,7 +251,7 @@ export class BrowserAgent {
         }
     }
 
-    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string): Promise<boolean> {
+    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string): Promise<{ success: boolean; summary: string }> {
         const workerMem = new MemoryManager(this.llm);
         workerMem.add('system', `You are a browser automation agent executing a sequence of related tasks.
 Your current task: "${subGoal}"
@@ -401,6 +403,7 @@ What action should I take next to achieve: "${subGoal}"?`
             if (response.toolCalls && response.toolCalls.length > 0) {
                 let taskCompleted = false;
                 let taskSuccess = false;
+                let taskSummary = '';
 
                 for (const call of response.toolCalls) {
                     // Ensure arguments is always an object (defensive handling)
@@ -435,18 +438,19 @@ What action should I take next to achieve: "${subGoal}"?`
                         if (call.name === 'task_complete') {
                             taskCompleted = true;
                             taskSuccess = result.success;
+                            taskSummary = result.output; // Capture the summary from task_complete
                         }
                     }
                 }
 
                 // Exit if agent called task_complete (success OR failure)
-                if (taskCompleted) return taskSuccess;
+                if (taskCompleted) return { success: taskSuccess, summary: taskSummary };
             } else {
                 workerMemoryAdd(workerMem, 'user', 'No tool used. If done (or stuck), call "task_complete".');
             }
 
         }
-        return false;
+        return { success: false, summary: 'Max steps reached without completion' };
     }
 
     private getToolsForLLM(): ToolDefinition[] {
@@ -458,10 +462,14 @@ What action should I take next to achieve: "${subGoal}"?`
     }
 
     private async generateFinalSummary(goal: string, tasks: Task[]) {
+        // Build a log that includes actual task results
         const logs = tasks.filter(t => t.status === 'completed')
-            .map(t => `Task: ${t.description}\nStatus: Completed`).join('\n\n');
+            .map(t => {
+                const result = (t as any).result || 'Completed';
+                return `Task: ${t.description}\nResult: ${result}`;
+            }).join('\n\n');
 
-        const prompt = `GOAL: ${goal}\n\nEXECUTION LOG:\n${logs}\n\nProvide a comprehensive answer/summary.`;
+        const prompt = `GOAL: ${goal}\n\nCOMPLETED TASKS AND RESULTS:\n${logs}\n\nBased on these results, provide a comprehensive answer to the user's original goal. Use the extracted information from the task results above.`;
         const context = [{ role: 'user', content: prompt }] as any;
 
         return this.streamToUI(context);
