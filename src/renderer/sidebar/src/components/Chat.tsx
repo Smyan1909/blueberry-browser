@@ -132,7 +132,7 @@ const AssistantMessage: React.FC<{ content: string; isStreaming?: boolean }> = (
     </div>
 )
 
-// Loading Indicator with spinning star
+// Loading Indicator with spinning blueberry logo
 const LoadingIndicator: React.FC = () => {
     const [isVisible, setIsVisible] = useState(false)
 
@@ -142,10 +142,32 @@ const LoadingIndicator: React.FC = () => {
 
     return (
         <div className={cn(
-            "transition-transform duration-300 ease-in-out",
+            "transition-transform duration-300 ease-in-out flex items-center gap-2",
             isVisible ? "scale-100" : "scale-0"
         )}>
-            ...
+            {/* Spinning Blueberry Logo */}
+            <svg
+                className="size-6 animate-spin"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+            >
+                {/* Blueberry body */}
+                <circle cx="12" cy="13" r="9" fill="#6366F1" />
+                <circle cx="12" cy="13" r="9" fill="url(#blueberry-gradient)" />
+                {/* Highlight */}
+                <ellipse cx="9" cy="10" rx="2.5" ry="1.5" fill="rgba(255,255,255,0.3)" transform="rotate(-20 9 10)" />
+                {/* Stem top */}
+                <path d="M11 4 C11 2, 13 2, 13 4 L13 6 C13 7, 11 7, 11 6 Z" fill="#22C55E" />
+                {/* Leaf */}
+                <path d="M13 5 Q16 3, 17 5 Q16 7, 13 6" fill="#22C55E" />
+                <defs>
+                    <radialGradient id="blueberry-gradient" cx="0.3" cy="0.3" r="0.7">
+                        <stop offset="0%" stopColor="#818CF8" />
+                        <stop offset="100%" stopColor="#4338CA" />
+                    </radialGradient>
+                </defs>
+            </svg>
         </div>
     )
 }
@@ -211,8 +233,8 @@ interface AgentThought {
     timestamp: number
 }
 
-const PlanVisualization: React.FC<{ 
-    plan: Plan; 
+const PlanVisualization: React.FC<{
+    plan: Plan;
     thoughts: AgentThought[];
     isAwaitingApproval?: boolean;
     onApprove?: () => void;
@@ -250,7 +272,7 @@ const PlanVisualization: React.FC<{
                 </div>
                 {/* Progress bar */}
                 <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div 
+                    <div
                         className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
                         style={{ width: `${progress}%` }}
                     />
@@ -432,18 +454,18 @@ const ConversationTurnComponent: React.FC<{
 }> = ({ turn, isLoading, plan, thoughts = [], isAwaitingApproval, onApprove, onRevise }) => (
     <div className="pt-12 flex flex-col gap-8">
         {turn.user && <UserMessage content={turn.user.content} />}
-        
+
         {/* Show plan visualization when there's an active plan */}
         {plan && (plan.status === 'active' || isAwaitingApproval) && (
-            <PlanVisualization 
-                plan={plan} 
-                thoughts={thoughts} 
+            <PlanVisualization
+                plan={plan}
+                thoughts={thoughts}
                 isAwaitingApproval={isAwaitingApproval}
                 onApprove={onApprove}
                 onRevise={onRevise}
             />
         )}
-        
+
         {turn.assistant && (
             <AssistantMessage
                 content={turn.assistant.content}
