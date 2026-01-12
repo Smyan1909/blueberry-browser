@@ -251,6 +251,18 @@ export const ActionRegistry = {
     }
   } as ActionTool<{ tab_index: number }>,
 
+  close_tab: {
+    name: 'close_tab',
+    description: 'Close a specific tab. Use this when you are done with a tab to keep the workspace clean.',
+    schema: z.object({
+      tab_index: z.number().describe('The tab index to close (shown in OPEN TABS list)')
+    }),
+    execute: async (_params) => {
+      // This is handled specially in agent.ts
+      return { success: true, output: 'Tab close handled by agent' };
+    }
+  } as ActionTool<{ tab_index: number }>,
+
   // Legacy switch_tab kept for now but deprecated
   switch_tab: {
     name: 'switch_tab',

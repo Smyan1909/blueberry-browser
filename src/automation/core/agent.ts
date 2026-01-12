@@ -312,13 +312,18 @@ You are working in a persistent browser tab. Previous tasks may have already nav
    - Example: extract_content({ goal: "Get the main article text" })
 
 ### Tab Management
-8. **switch_to_tab** - Switch between open tabs (useful when clicks open new tabs)
+9. **switch_to_tab** - Switch between open tabs (useful when clicks open new tabs)
    - tab_index: The tab number to switch to (shown in OPEN TABS list)
    - Example: switch_to_tab({ tab_index: 1 })
    - Note: When you click something that opens a new tab, you'll automatically switch to it
 
+10. **close_tab** - Close a specific tab
+   - tab_index: The tab number to close (shown in OPEN TABS list)
+   - Example: close_tab({ tab_index: 1 })
+   - Use this to keep your workspace clean when done with a tab
+
 ### Task Completion
-9. **task_complete** - Signal task is done
+11. **task_complete** - Signal task is done
    - success: true if goal achieved, false if impossible
    - summary: Brief description of what happened
    - Example: task_complete({ success: true, summary: "Successfully searched for laptops" })
@@ -394,8 +399,25 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
 
         // Listen for popups (new tabs opened from clicks)
         const popupHandler = async (newPage: Page) => {
+            // Check if we're already tracking this page
+            const existingId = Array.from(agentTabs.entries()).find(([, t]) => t.page === newPage)?.[0];
+            if (existingId !== undefined) return;
+
             const tabIndex = nextTabIndex++;
             console.log(`[Agent] New tab opened: ${newPage.url()}, assigning index ${tabIndex}`);
+
+            // Recursively listen for popups on the new page too
+            newPage.on('popup', popupHandler);
+
+            // Listen for closure to remove from list
+            newPage.on('close', () => {
+                console.log(`[Agent] Tab ${tabIndex} closed externally`);
+                agentTabs.delete(tabIndex);
+                if (activeTabIndex === tabIndex) {
+                    activeTabIndex = 0; // Fallback to main tab
+                    this.emit('action', `[Agent] Tab ${tabIndex} closed, switching back to main tab`);
+                }
+            });
 
             // Wait for the page to be somewhat ready
             await newPage.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
@@ -419,6 +441,11 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
 
         // Attach popup listener to all tracked pages
         page.on('popup', popupHandler);
+        // Also listen for main page closure just in case
+        page.on('close', () => {
+            console.log('[Agent] Main agent tab closed');
+            // Loop will exit on next iteration due to error likely
+        });
 
         // Helper to get current active tab
         const getActiveTab = (): TrackedTab => {
@@ -561,6 +588,36 @@ What is the NEXT action to achieve "${subGoal}"?
                             continue;
                         } else {
                             const result = `Error: Tab ${tabIndex} not found. Available tabs: ${Array.from(agentTabs.keys()).join(', ')}`;
+                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            continue;
+                        }
+                    }
+
+                    // Handle close_tab specially
+                    if (call.name === 'close_tab') {
+                        const tabIndex = (toolArgs as any).tab_index;
+                        if (tabIndex === 0) {
+                            const result = `Error: Cannot close the main tab (index 0).`;
+                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            continue;
+                        }
+                        if (agentTabs.has(tabIndex)) {
+                            // Close the page - this triggers the 'close' listener we set up
+                            try {
+                                const tab = agentTabs.get(tabIndex)!;
+                                await tab.dom.disableSpectatorMode().catch(() => { });
+                                await tab.page.close();
+                                const result = `Closed tab ${tabIndex}`;
+                                this.emit('action', `[${subGoal}] ${result}`);
+                                workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                                actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Closed' });
+                            } catch (err: any) {
+                                const result = `Error closing tab ${tabIndex}: ${err.message}`;
+                                workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            }
+                            continue;
+                        } else {
+                            const result = `Error: Tab ${tabIndex} not found or already closed.`;
                             workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
                             continue;
                         }
