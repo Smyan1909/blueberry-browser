@@ -43,7 +43,7 @@ export class E2BService {
             const execution = await sandbox.runCode(code);
 
             if (execution.error) {
-                // We don't throw immediately, we return the error so the agent can see it in 'output'
+
                 return {
                     logs: execution.logs,
                     stdout: execution.logs.stdout.join('\n'),
@@ -58,11 +58,11 @@ export class E2BService {
             const inputFilenames = new Set(files.map(f => f.name));
 
             for (const file of sandboxFiles) {
-                // Skip directories, hidden files, and input files
+
                 if (file.type === 'dir' || file.name.startsWith('.') || inputFilenames.has(file.name)) continue;
 
                 console.log(`Downloading generated artifact: ${file.name}`);
-                // Use safe read of binary files via python base64 to avoid encoding issues
+
                 const b64Result = await sandbox.runCode(`
 import base64
 try:
@@ -93,7 +93,6 @@ except Exception as e:
 
         } finally {
             // We do NOT kill the sandbox to allow persistence
-            // await sandbox.kill(); 
         }
     }
 

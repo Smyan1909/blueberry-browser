@@ -44,10 +44,6 @@ export function buildDomTree(doHighlight: boolean = false): any {
 function recursiveTraverse(node: Element, parentId?: number): ElementData | null {
     if (!node) return null;
 
-    // Skip blueberry UI elements (overlay, cursor, highlights) - they should not be in the DOM tree
-    // Skip blueberry UI elements (overlay, cursor, highlights) - they should not be in the DOM tree
-    // Use getAttribute('id') because accessing node.id directly might return an element 
-    // if the form contains an input with name="id" (DOM clobbering)
     const nodeId = typeof node.getAttribute === 'function' ? node.getAttribute('id') : null;
     if (nodeId && typeof nodeId === 'string' && (
         nodeId === 'blueberry-spectator-overlay' ||
@@ -147,44 +143,36 @@ function recursiveTraverse(node: Element, parentId?: number): ElementData | null
 function checkInteractivity(node: Element, style: CSSStyleDeclaration): boolean {
     const tagName = node.tagName.toLowerCase();
 
-    // Semantic Interactive Elements
+
     if (['button', 'a', 'input', 'select', 'textarea', 'details', 'summary'].includes(tagName)) return true;
 
-    // ARIA Roles that imply interactivity
+
     const role = node.getAttribute('role');
     if (['button', 'link', 'menuitem', 'checkbox', 'radio', 'tab', 'combobox', 'textbox', 'switch'].includes(role || '')) return true;
 
-    // Event Handlers (Heuristic)
-    // Note: We can't detect event listeners added via addEventListener from here easily,
-    // but we can check inline handlers or cursor styles.
+
     if (node.hasAttribute('onclick') || node.hasAttribute('ng-click') || node.hasAttribute('@click')) return true;
 
-    // Visual Cues
     if (style.cursor === 'pointer' || style.cursor === 'hand') return true;
 
-    // Form Labels are interactive because clicking them focuses the input
     if (tagName === 'label') return true;
 
-    // === ENHANCED DETECTION FOR VIDEO SITES ===
-    // YouTube uses custom elements like ytd-video-renderer, ytd-thumbnail, etc.
     if (tagName.startsWith('ytd-') || tagName.startsWith('ytm-')) {
-        // YouTube custom elements - check if they're clickable (have href-containing children or are thumbnails)
         const ariaLabel = node.getAttribute('aria-label');
         if (ariaLabel && (ariaLabel.toLowerCase().includes('video') || ariaLabel.toLowerCase().includes('watch'))) {
             return true;
         }
-        // Thumbnails are clickable
         if (tagName.includes('thumbnail') || tagName.includes('video')) {
             return true;
         }
     }
 
-    // Common video thumbnail patterns across sites
+
     const id = typeof node.getAttribute === 'function' ? node.getAttribute('id') || '' : '';
     const className = node.className && typeof node.className === 'string' ? node.className : '';
     const ariaLabel = node.getAttribute('aria-label') || '';
 
-    // Check for video-related identifiers
+
     const videoKeywords = ['video', 'thumbnail', 'play-button', 'player', 'watch'];
     const combined = (id + ' ' + className + ' ' + ariaLabel).toLowerCase();
     if (videoKeywords.some(kw => combined.includes(kw)) && style.cursor !== 'default') {

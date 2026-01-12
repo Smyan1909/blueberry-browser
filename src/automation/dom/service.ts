@@ -290,17 +290,10 @@ export class DomService {
                                 createHTML: (string) => string
                             });
                         } catch (e) {
-                            // Policy might be strict or already exist with different name, try to reuse or fallback
-                            // For now, if we can't create it, we might be blocked. 
-                            // But createPolicy throws if name exists. 
                             // Just ignore error and try assignment, browser might block it but we tried.
                         }
                     }
-                    // Since we can't easily get a specific policy by name if we didn't just create it, 
-                    // and defaultPolicy applies to direct assignment...
-                    // Actually, best practice in injection script is to try/catch creation 
-                    // or just check for existence. Since this is an EVAL script, scope is unique-ish but global registry persists.
-                    // We'll try to create a unique one or reuse.
+
                     if (!window.blueberryPolicy) {
                         try {
                             window.blueberryPolicy = window.trustedTypes.createPolicy('blueberry-policy-' + Math.random(), {
