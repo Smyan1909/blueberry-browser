@@ -93,6 +93,10 @@ const sidebarAPI = {
   getPageText: () => electronAPI.ipcRenderer.invoke("get-page-text"),
   getCurrentUrl: () => electronAPI.ipcRenderer.invoke("get-current-url"),
 
+  // Artifacts
+  downloadArtifact: (artifact: { name: string; data: string }) =>
+    electronAPI.ipcRenderer.invoke("download-artifact", artifact),
+
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
 };

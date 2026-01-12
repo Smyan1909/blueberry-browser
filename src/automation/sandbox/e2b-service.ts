@@ -10,10 +10,27 @@ export interface ExecutionResult {
 }
 
 export class E2BService {
+    private sandbox: Sandbox | null = null;
+
+    async getSandbox(): Promise<Sandbox> {
+        if (!this.sandbox) {
+            console.log("Creating new E2B sandbox...");
+            this.sandbox = await Sandbox.create();
+        }
+        return this.sandbox;
+    }
+
+    async close() {
+        if (this.sandbox) {
+            console.log("Closing E2B sandbox...");
+            await this.sandbox.kill();
+            this.sandbox = null;
+        }
+    }
 
     async executeCode(code: string, files: { name: string, content: string | ArrayBuffer }[] = []): Promise<ExecutionResult> {
         console.log("Starting E2B sandbox execution");
-        const sandbox = await Sandbox.create();
+        const sandbox = await this.getSandbox();
 
         try {
             // Upload files
@@ -45,11 +62,25 @@ export class E2BService {
                 if (file.type === 'dir' || file.name.startsWith('.') || inputFilenames.has(file.name)) continue;
 
                 console.log(`Downloading generated artifact: ${file.name}`);
-                const fileContent = await sandbox.files.read(file.name);
-                artifacts.push({
-                    name: file.name,
-                    data: Buffer.from(fileContent).toString('base64')
-                });
+                // Use safe read of binary files via python base64 to avoid encoding issues
+                const b64Result = await sandbox.runCode(`
+import base64
+try:
+    with open('${file.name}', 'rb') as f:
+        print(base64.b64encode(f.read()).decode('utf-8'))
+except Exception as e:
+    print(f"ERROR: {e}")
+`);
+                const base64Data = b64Result.logs.stdout.join('').trim();
+
+                if (base64Data && !base64Data.startsWith('ERROR:')) {
+                    artifacts.push({
+                        name: file.name,
+                        data: base64Data
+                    });
+                } else {
+                    console.error(`Failed to download artifact ${file.name}: ${base64Data}`);
+                }
             }
 
             return {
@@ -61,7 +92,8 @@ export class E2BService {
             };
 
         } finally {
-            await sandbox.kill();
+            // We do NOT kill the sandbox to allow persistence
+            // await sandbox.kill(); 
         }
     }
 

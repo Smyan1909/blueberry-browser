@@ -11,6 +11,7 @@ interface ChatResponse {
   messageId: string;
   content: string;
   isComplete: boolean;
+  artifacts?: { name: string; data: string }[];
 }
 
 /**
@@ -80,7 +81,7 @@ export class AgentMessageManager {
       case 'result_stream':
         // Accumulate streaming chunks
         this.currentResponseContent += event.message;
-        
+
         // Send streaming chunk to sidebar
         if (this.currentMessageId) {
           this.sendChatResponse({
@@ -94,11 +95,13 @@ export class AgentMessageManager {
       case 'result':
         // Final result - complete the response
         this.currentResponseContent = event.message || this.currentResponseContent;
-        
+        const artifacts = event.data?.artifacts;
+
         // Add assistant message to conversation
-        const assistantMessage: CoreMessage = {
+        const assistantMessage: any = {
           role: 'assistant',
           content: this.currentResponseContent,
+          artifacts: artifacts
         };
         this.messages.push(assistantMessage);
 
@@ -108,6 +111,7 @@ export class AgentMessageManager {
             messageId: this.currentMessageId,
             content: this.currentResponseContent,
             isComplete: true,
+            artifacts: artifacts
           });
         }
 

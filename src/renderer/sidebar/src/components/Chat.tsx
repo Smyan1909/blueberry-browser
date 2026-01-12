@@ -13,6 +13,7 @@ interface Message {
     content: string
     timestamp: number
     isStreaming?: boolean
+    artifacts?: { name: string; data: string }[]
 }
 
 // Auto-scroll hook
@@ -116,18 +117,59 @@ const Markdown: React.FC<{ content: string }> = ({ content }) => (
     </div>
 )
 
+const ArtifactsDisplay: React.FC<{ artifacts?: { name: string; data: string }[] }> = ({ artifacts }) => {
+    if (!artifacts || artifacts.length === 0) return null;
+    return (
+        <div className="flex flex-col gap-3 mt-3 animate-fade-in group-artifacts">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Generated Artifacts</h4>
+            <div className="grid grid-cols-1 gap-2">
+                {artifacts.map((art, i) => {
+                    const ext = art.name.split('.').pop()?.toLowerCase();
+                    let mime = 'application/octet-stream';
+                    if (ext === 'png') mime = 'image/png';
+                    else if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+                    else if (ext === 'svg') mime = 'image/svg+xml';
+
+                    const isImage = mime.startsWith('image/');
+                    const dataUri = `data:${mime};base64,${art.data}`;
+
+                    if (isImage) {
+                        return (
+                            <div key={i} className="group relative rounded-xl overflow-hidden border border-border bg-background shadow-sm">
+                                <img src={dataUri} alt={art.name} className="w-full h-auto max-h-[300px] object-contain bg-muted/20" />
+                                <div className="bg-background/90 backdrop-blur-sm px-3 py-2 text-xs border-t border-border flex justify-between items-center">
+                                    <span className="font-medium truncate">{art.name}</span>
+                                    <button onClick={() => window.sidebarAPI.downloadArtifact(art)} className="text-primary hover:underline">Download</button>
+                                </div>
+                            </div>
+                        );
+                    } else {
+                        return (
+                            <button key={i} onClick={() => window.sidebarAPI.downloadArtifact(art)} className="flex items-center justify-between p-3 bg-muted/50 hover:bg-muted rounded-xl border border-border transition-all w-full text-left">
+                                <div className="flex items-center gap-2">
+                                    <Paperclip className="size-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">{art.name}</span>
+                                </div>
+                                <span className="text-xs text-primary font-medium">Download</span>
+                            </button>
+                        );
+                    }
+                })}
+            </div>
+        </div>
+    );
+}
+
 // Assistant Message Component - appears on the left
-const AssistantMessage: React.FC<{ content: string; isStreaming?: boolean }> = ({
-    content,
-    isStreaming
-}) => (
+const AssistantMessage: React.FC<{ message: Message }> = ({ message }) => (
     <div className="relative w-full animate-fade-in">
         <div className="py-1">
-            {isStreaming ? (
-                <StreamingText content={content} />
+            {message.isStreaming ? (
+                <StreamingText content={message.content} />
             ) : (
-                <Markdown content={content} />
+                <Markdown content={message.content} />
             )}
+            <ArtifactsDisplay artifacts={message.artifacts} />
         </div>
     </div>
 )
@@ -514,10 +556,7 @@ const ConversationTurnComponent: React.FC<{
         )}
 
         {turn.assistant && (
-            <AssistantMessage
-                content={turn.assistant.content}
-                isStreaming={turn.assistant.isStreaming}
-            />
+            <AssistantMessage message={turn.assistant} />
         )}
         {isLoading && (!plan || plan.status === 'completed') && (
             <div className="flex justify-start">

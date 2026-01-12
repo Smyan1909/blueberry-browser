@@ -1,4 +1,6 @@
-import { ipcMain, WebContents } from "electron";
+import { ipcMain, WebContents, app, shell } from "electron";
+import { promises as fs } from "fs";
+import { join } from "path";
 import type { Window } from "./Window";
 import { handleChatMessage, clearChatMessages, getChatMessages } from "./agent-handler";
 
@@ -25,6 +27,9 @@ export class EventManager {
 
     // Debug events
     this.handleDebugEvents();
+
+    // Artifact events
+    this.handleArtifactEvents();
   }
 
   private handleTabEvents(): void {
@@ -226,6 +231,25 @@ export class EventManager {
   private handleDebugEvents(): void {
     // Ping test
     ipcMain.on("ping", () => console.log("pong"));
+  }
+
+  private handleArtifactEvents(): void {
+    ipcMain.handle('download-artifact', async (_event, artifact: { name: string; data: string }) => {
+      try {
+        const downloadsPath = app.getPath('downloads');
+        const safeName = artifact.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = join(downloadsPath, safeName);
+
+        const buffer = Buffer.from(artifact.data, 'base64');
+        await fs.writeFile(filePath, buffer);
+
+        shell.showItemInFolder(filePath);
+        return { success: true, path: filePath };
+      } catch (error: any) {
+        console.error('Download error:', error);
+        return { success: false, error: error.message };
+      }
+    });
   }
 
   private broadcastDarkMode(sender: WebContents, isDarkMode: boolean): void {

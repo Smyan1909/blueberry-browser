@@ -15,6 +15,7 @@ interface ChatResponse {
   messageId: string;
   content: string;
   isComplete: boolean;
+  artifacts?: { name: string; data: string }[];
 }
 
 interface TabInfo {
@@ -87,6 +88,9 @@ interface SidebarAPI {
   getPageContent: () => Promise<string | null>;
   getPageText: () => Promise<string | null>;
   getCurrentUrl: () => Promise<string | null>;
+
+  // Artifacts
+  downloadArtifact: (artifact: { name: string; data: string }) => Promise<{ success: boolean; path?: string; error?: string }>;
 
   // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;

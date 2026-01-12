@@ -277,8 +277,10 @@ export async function handleChatMessage(goal: string, file?: { name: string, dat
       }
 
       if (result.artifacts && result.artifacts.length > 0) {
-        outputText += `\n\n**Artifacts generated:**\n` + result.artifacts.map(a => `- ${a.name}`).join('\n');
-        // Note: In a real implementation, we would pass the artifact data to the frontend to display/download
+        outputText += `\n\n**Artifacts generated:**\n`;
+        result.artifacts.forEach(a => outputText += `- ${a.name}\n`);
+      } else if (result.results && result.results.length > 0) {
+
       } else if (result.results && result.results.length > 0) {
         result.results.forEach(res => {
           if (res.text) outputText += `\n${res.text}`;
@@ -290,7 +292,8 @@ export async function handleChatMessage(goal: string, file?: { name: string, dat
           type: 'result',
           agentId: 'file-processor',
           message: outputText,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          data: { artifacts: result.artifacts }
         });
       }
     } catch (error: any) {

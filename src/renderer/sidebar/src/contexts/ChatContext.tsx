@@ -6,6 +6,7 @@ interface Message {
     content: string
     timestamp: number
     isStreaming?: boolean
+    artifacts?: { name: string; data: string }[]
 }
 
 interface Task {
@@ -87,7 +88,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             ? msg.content
                             : msg.content.find((p: any) => p.type === 'text')?.text || '',
                         timestamp: Date.now(),
-                        isStreaming: false
+                        isStreaming: false,
+                        artifacts: msg.artifacts
                     }))
                     setMessages(convertedMessages)
                 }
@@ -219,7 +221,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     ? msg.content
                     : msg.content.find((p: any) => p.type === 'text')?.text || '',
                 timestamp: Date.now(),
-                isStreaming: false
+                isStreaming: false,
+                artifacts: msg.artifacts
             }))
             setMessages(convertedMessages)
         }
