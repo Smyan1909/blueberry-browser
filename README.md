@@ -1,85 +1,32 @@
 # Blueberry Browser
 
-> **⚠️ Disclaimer:** I'm not proud of this codebase! It was built in 3 hours. If you have some time left over in the challenge, feel free to refactor and clean things up!
+To really be able to compete with Strawberry, it was but obvious that blueberry should include a proprietary AI agent that can browse the web using Computer Use (Built from scratch).
+But to give it a push further and make it superior we needed to add a feature that would greatly multiply productivity. Therefore we added a codegen sandbox using E2B to allow the agent to generate code to handle and modify files for the user. 
 
-https://github.com/user-attachments/assets/bbf939e2-d87c-4c77-ab7d-828259f6d28d
+## Feature 1: Computer Use Agent
 
----
+* **Perception**: The agent reads an indexed version of the DOM of the current page and along with Set-of-Mark prompting it understands the context of the page and what it can interact with.
 
-## Overview
+* **Planning**: The agent plans its actions based on the user's request and the context of the page.
 
-You are the **CTO of Blueberry Browser**, a Strawberry competitor. Your mission is to add a feature to Blueberry that makes it superior & more promising than Strawberry.
+* **Action**: The agent uses tools that are activated through playwright and connected to blueberry via CDP to perform actions on the page like e.g. navigation, typing and clicking.
 
-But your time is limited—Strawberry is about to raise a two billion dollar Series A round from X-Separator, B17Å and Sequoiadendron giganteum Capital.
+* **Monitoring**: The tab where the agent is active can be monitored by the user where the agent is given a ghost cursor to show where it is currently interacting with the page.
 
-## 🎯 Task
+## Demo Video for Feature 1:
 
-Your job is to **clone this repo** and add a unique feature. Some ideas are listed below.
 
-It doesn't need to work 100% reliably, or even be completely done. It just has to:
 
-- Show that you are creative and can iterate on novel ideas fast
-- Demonstrate good system thinking and code practices  
-- Prove you are a capable full stack and/or LLM dev
+## Feature 2: Codegen Sandbox
 
-Once you're done, we'll book a call where you'll get to present your work!
+* **Execution**: The agent is provided with a tool that allows it to execute python code in a sandboxed environment (E2B). The agent can use this tool to generate code to handle and modify files for the user.
 
-If it's cracked, we might just have to acquire Blueberry Browser to stay alive 👀👀👀
+* **Persistence**: The sandbox is not killed after execution to allow the agent to reuse it for multiple files.
 
-### ⏰ Time
+* **Artifacts**: The agent can generate or modify the inputted files and return them to the user.
 
-**1-2 weeks** is ideal for this challenge. This allows you to work over weekends and during evenings in your own time.
 
-### 📋 Rules
+## Demo Video for Feature 2:
 
-You are allowed to vibe code, but make sure you understand everything so we can ask technical questions.
 
-## 💡 Feature Ideas
 
-### **Browsing History Compiler**
-Track the things that the user is doing inside the browser and figure out from a series of browser states what the user is doing, and perhaps how valuable, repetitive tasks can be re-run by an AI agent.
-
-*Tab state series → Prompt for web agent how to reproduce the work*
-
-### **Coding Agent**
-Sidebar coding agent that can create a script that can run on the open tabs.
-
-Maybe useful for filling forms or changing the page's style so it can extract data but present it in a nicer format.
-
-### **Tab Completion Model**
-Predict next action or what to type, like Cursor's tab completion model.
-
-### **Your Own Idea**
-Feel free to implement your own idea!
-
-> Wanted to try transformers.js for a while? This is your chance! 
-
-> Have an old cool web agent framework you built? Let's see if you can merge it into the browser!
-
-> Think you can add a completely new innovation to the browser concept with some insane, over-engineered React? Lfg!
-
-Make sure you can realistically showcase a simple version of it in the timeframe. You can double check with us first if uncertain! :)
-
-## 💬 Tips
-
-Feel free to write to us with questions or send updates during the process—it's a good way to get a feel for working together.
-
-It can also be a good way for us to give feedback if things are heading in the right or wrong direction.
-
----
-
-## 🚀 Project Setup
-
-### Install
-```bash
-$ pnpm install
-```
-
-### Development
-```bash
-$ pnpm dev
-```
-
-**Add an OpenAI API key to `.env`** in the root folder.
-
-Strawberry will reimburse LLM costs, so go crazy! *(Please not more than a few hundred dollars though!)*

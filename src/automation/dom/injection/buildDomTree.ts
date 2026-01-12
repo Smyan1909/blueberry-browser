@@ -70,6 +70,18 @@ function recursiveTraverse(node: Element, parentId?: number): ElementData | null
 
     if (!isVisible) return null;
 
+    // Skip elements entirely outside viewport (not useful for current view)
+    const inViewport =
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth;
+
+    // Skip elements too small to interact with (less than 10x10)
+    const isTooSmall = rect.width < 10 || rect.height < 10;
+
+    if (!inViewport || isTooSmall) return null;
+
     const isInteractive = checkInteractivity(node, style);
 
     let rawChildren = Array.from(node.children);

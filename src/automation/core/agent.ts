@@ -253,127 +253,33 @@ export class BrowserAgent {
     }
 
     private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string, mainGoal: string): Promise<{ success: boolean; summary: string }> {
+        // System prompt as constant - passed FRESH to LLM each iteration (never summarized/lost)
+        const systemPrompt = `You are a browser automation agent completing: "${subGoal}"
+
+🎯 MAIN GOAL: "${mainGoal}"
+
+## TOOLS
+- navigate({ url }) - Go to URL
+- click_element({ index }) - Click by number  
+- input_text({ index, text, submit? }) - Type, submit:true = Enter
+- scroll_page({ direction }) - "up" or "down"
+- press_key({ key }) - "Escape" closes popups
+- task_complete({ success, summary }) - CALL WHEN DONE!
+
+## RULES
+1. Look at screenshot - numbers are clickable element IDs
+2. One action per turn, observe result
+3. Don't repeat failing actions
+4. Call task_complete when sub-task is done!
+
+## ✅ WHEN TO CALL task_complete
+- Navigation → On correct page? → task_complete!
+- Search → Results visible? → task_complete!
+- Click → Element clicked? → task_complete!`;
+
+        // Conversation memory for reasoning continuity (can be summarized when too long)
+        // Note: System prompt is NOT in this memory - it's always added fresh
         const workerMem = new MemoryManager(this.llm);
-        workerMem.add('system', `You are a precise browser automation agent.
-OVERARCHING GOAL: "${mainGoal}"
-CURRENT SUB-TASK: "${subGoal}"
-
-## CORE RESPONSIBILITY
-You control a web browser to complete tasks. You receive a screenshot with numeric labels on interactive elements and a text description of those elements. Your job is to choose the BEST single next action to advance the task.
-
-## RESPONSE PROCESS
-1. **ANALYZE**: Look at the screenshot. Identify the specific element ID you need.
-2. **VERIFY**: Check if the element is visible and not blocked by popups.
-3. **ACT**: Choose the appropriate tool.
-
-## CRITICAL GUIDELINES
-- **Visuals First**: Trust the numeric labels in the screenshot above all else.
-- **One Action Per Turn**: You can only perform one interaction at a time.
-- **Dynamic Content**: Pages change. Always re-evaluate the new state after an interaction.
-- **No Hallucinations**: Do not make up element IDs. Only use IDs visible in the screenshot or list.
-- **Browser Context**: You are in a browser. You cannot interact with the OS or browser chrome (address bar, tabs).
-
-## AVAILABLE TOOLS
-
-### Navigation Tools
-1. **navigate** - Go directly to any URL
-   - Use this to visit websites! Don't try to click an address bar.
-   - Example: navigate({ url: "https://google.com" })
-   - Example: navigate({ url: "https://amazon.com/search?q=laptop" })
-
-2. **go_back** - Go back in browser history
-   - No parameters needed
-   - Example: go_back({})
-
-3. **refresh** - Reload the current page
-   - No parameters needed
-   - Example: refresh({})
-
-### Interaction Tools
-4. **click_element** - Click on a numbered element
-   - index: The element number from the screenshot (required)
-   - open_in_new_tab: Set true to Ctrl+click (optional, default: false)
-   - Example: click_element({ index: 5 })
-   - Example: click_element({ index: 12, open_in_new_tab: true })
-
-5. **input_text** - Type text into an input field
-   - index: The element number (required)
-   - text: What to type (required)
-   - clear: Clear field first (optional, default: true)
-   - submit: Press Enter after typing (optional, default: false)
-   - Example: input_text({ index: 3, text: "search query", submit: true })
-
-6. **scroll_page** - Scroll to see more content
-   - direction: "up" or "down" (default: "down")
-   - amount: Pixels to scroll (default: 500)
-   - Example: scroll_page({ direction: "down", amount: 800 })
-
-### Keyboard Shortcuts
-7. **press_key** - Press a keyboard key (VERY USEFUL for popups!)
-   - key: The key to press ("Escape", "Enter", "Tab", "ArrowDown", etc.)
-   - Example: press_key({ key: "Escape" }) - DISMISSES MOST POPUPS/MODALS
-   - Example: press_key({ key: "Enter" }) - Confirms dialogs
-
-### Content Extraction
-8. **extract_content** - Extract specific information from the current page
-   - goal: Description of what information to extract
-   - Example: extract_content({ goal: "Get the main article text" })
-
-### Tab Management
-9. **switch_to_tab** - Switch between open tabs (useful when clicks open new tabs)
-   - tab_index: The tab number to switch to (shown in OPEN TABS list)
-   - Example: switch_to_tab({ tab_index: 1 })
-   - Note: When you click something that opens a new tab, you'll automatically switch to it
-
-10. **close_tab** - Close a specific tab
-   - tab_index: The tab number to close (shown in OPEN TABS list)
-   - Example: close_tab({ tab_index: 1 })
-   - Use this to keep your workspace clean when done with a tab
-
-### Task Completion
-11. **task_complete** - Signal task is done
-   - success: true if goal achieved, false if impossible
-   - summary: Brief description of what happened
-   - Example: task_complete({ success: true, summary: "Successfully searched for laptops" })
-   - Example: task_complete({ success: false, summary: "Login required but no credentials available" })
-
-## COMMON SCENARIOS
-- "Go to google.com" → Use navigate({ url: "https://google.com" })
-- "Search for X" → Find search input, use input_text with submit: true
-- "Click the login button" → Find the button number, use click_element
-- "Go back to previous page" → Use go_back({})
-
-## HANDLING OVERLAYS AND POPUPS
-⚠️ IF CLICKS DON'T SEEM TO WORK, A POPUP/MODAL IS PROBABLY BLOCKING!
-Common signs: "All Offers" dialogs, cookie banners, login prompts, newsletter signups
-
-**FIRST TRY: press_key({ key: "Escape" })** - This dismisses MOST popups instantly!
-
-If Escape doesn't work:
-1. Look for "Close", "X", "Dismiss", "Accept", "Got it" buttons in the element list
-2. These are usually small elements with just "X" or "Close" text
-3. Click the close button, THEN retry your original action
-
-**WARNING**: If you click the same element 2+ times and nothing changes, STOP and try:
-1. press_key({ key: "Escape" }) first
-2. Look for a different element to click
-3. Scroll to see if there's a close button
-
-## VIDEO SITES (YouTube, Netflix, etc.)
-- Video thumbnails are clickable! Look for elements with "video", "thumbnail", or "watch" in their text/aria-label
-- On YouTube, video titles are links (<a> tags) - click them to play the video
-- The "first video" is usually the first <a> element with a title that sounds like a video name
-- If you see ytd-video-renderer or ytd-thumbnail, the video title link inside is what you click
-- Don't just click element 2 - that's often the logo! Look for elements with video descriptions
-
-## WHAT TO DO WHEN STUCK
-- **Clicks not working?** → press_key({ key: "Escape" }) to dismiss popups
-- **Can't find element?** → scroll_page to reveal more content
-- **Page not loaded?** → wait and observe the new screenshot
-- **Same action failing repeatedly?** → TRY A DIFFERENT APPROACH
-- **Task impossible (needs login)?** → call task_complete with success: false
-
-Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
 
         // Track all actions for loop prevention
         interface ActionRecord {
@@ -501,8 +407,6 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
                 }
             }
 
-            const history = await workerMem.getContext();
-
             // Extract only INTERACTIVE elements from DOM tree
             // This dramatically reduces context size while preserving what the agent needs
             const interactiveElements = this.extractInteractiveElements(state.tree);
@@ -518,15 +422,22 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
                 }).join('\n')
                 : 'No interactive elements found';
 
-            // Build action history text for context
-            const actionHistoryText = actionsTaken.length > 0
-                ? actionsTaken.map(a =>
+            // Build action history text for context (last 8 actions only)
+            const recentActions = actionsTaken.slice(-8);
+            const actionHistoryText = recentActions.length > 0
+                ? recentActions.map(a =>
                     `• Step ${a.step}: ${a.action}${a.target !== undefined ? ` #${a.target}` : ''} → ${a.result}`
                 ).join('\n')
                 : 'None yet';
 
+            // HYBRID context: system prompt ALWAYS fresh + conversation history + current state
+            const history = await workerMem.getContext();
             const context = [
-                ...history,
+                {
+                    role: 'system',
+                    content: systemPrompt  // ALWAYS FRESH - never summarized away!
+                },
+                ...history,  // Previous reasoning and results (can be summarized)
                 {
                     role: 'user',
                     content: [
@@ -534,25 +445,21 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
                             type: 'image',
                             image: {
                                 data: state.screenshot,
-                                mediaType: 'image/jpeg' as const
+                                mediaType: 'image/png' as const
                             }
                         },
                         {
                             type: 'text',
-                            text: `## GOALS (Always Keep In Mind)
-🎯 MAIN GOAL: "${mainGoal}"
-📌 CURRENT SUB-TASK: "${subGoal}"
-
-## ACTIONS TAKEN (Do NOT Repeat These)
+                            text: `## CURRENT STATE (Step ${stepCount})
+URL: ${activePage.url()}
+${getTabListText()}
+## ACTIONS TAKEN
 ${actionHistoryText}
 
-${getTabListText()}## CURRENT PAGE STATE
-Interactive Elements (${interactiveElements.length}):
+## ELEMENTS ON PAGE
 ${elementsText}
 
-## YOUR TASK
-What is the NEXT action to achieve "${subGoal}"?
-⚠️ CRITICAL: Do NOT repeat any action from the list above. If a previous action didn't work, try a DIFFERENT approach.`
+Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                         }
                     ]
                 }
@@ -563,7 +470,9 @@ What is the NEXT action to achieve "${subGoal}"?
 
             this.emit('thought', `[${subGoal}] ${response.content}`);
             await activeDom.updateSpectatorThought(response.content);
-            workerMemoryAdd(workerMem, 'assistant', response.content);
+
+            // Track reasoning in memory for continuity
+            workerMem.add('assistant', response.content);
 
             if (response.toolCalls && response.toolCalls.length > 0) {
                 let taskCompleted = false;
@@ -584,12 +493,11 @@ What is the NEXT action to achieve "${subGoal}"?
                             activeTabIndex = tabIndex;
                             const result = `Switched to tab ${tabIndex}: ${agentTabs.get(tabIndex)!.url}`;
                             this.emit('action', `[${subGoal}] ${result}`);
-                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+
                             actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Switched' });
                             continue;
                         } else {
-                            const result = `Error: Tab ${tabIndex} not found. Available tabs: ${Array.from(agentTabs.keys()).join(', ')}`;
-                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            console.log(`[Agent] Error: Tab ${tabIndex} not found. Available tabs: ${Array.from(agentTabs.keys()).join(', ')}`);
                             continue;
                         }
                     }
@@ -598,8 +506,7 @@ What is the NEXT action to achieve "${subGoal}"?
                     if (call.name === 'close_tab') {
                         const tabIndex = (toolArgs as any).tab_index;
                         if (tabIndex === 0) {
-                            const result = `Error: Cannot close the main tab (index 0).`;
-                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            console.log(`[Agent] Error: Cannot close the main tab (index 0).`);
                             continue;
                         }
                         if (agentTabs.has(tabIndex)) {
@@ -610,16 +517,14 @@ What is the NEXT action to achieve "${subGoal}"?
                                 await tab.page.close();
                                 const result = `Closed tab ${tabIndex}`;
                                 this.emit('action', `[${subGoal}] ${result}`);
-                                workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+
                                 actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Closed' });
                             } catch (err: any) {
-                                const result = `Error closing tab ${tabIndex}: ${err.message}`;
-                                workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                                console.log(`[Agent] Error closing tab ${tabIndex}: ${err.message}`);
                             }
                             continue;
                         } else {
-                            const result = `Error: Tab ${tabIndex} not found or already closed.`;
-                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            console.log(`[Agent] Error: Tab ${tabIndex} not found or already closed.`);
                             continue;
                         }
                     }
@@ -633,7 +538,7 @@ What is the NEXT action to achieve "${subGoal}"?
                         });
 
                         this.emit('action', `[${subGoal}] Result: ${result.output}`);
-                        workerMemoryAdd(workerMem, 'user', `Tool(${call.name}): ${result.output}`);
+                        workerMem.add('user', `Tool ${call.name}: ${result.output.substring(0, 200)}`);
 
                         // Track action for loop prevention
                         actionsTaken.push({
@@ -650,15 +555,29 @@ What is the NEXT action to achieve "${subGoal}"?
 
                         if (duplicateCount >= 2) {
                             console.warn(`[Agent] ⚠️ Duplicate action detected: ${call.name} on #${toolArgs.index} (${duplicateCount}x)`);
-                            workerMemoryAdd(workerMem, 'user',
-                                `⚠️ WARNING: You've performed ${call.name} on element #${toolArgs.index} ${duplicateCount} times. This action may not be working. Try a DIFFERENT element or approach!`
-                            );
+
                         }
 
                         // Force exit if same action repeated 4+ times (definite loop)
                         if (duplicateCount >= 4) {
                             this.emit('thought', `🔄 Loop detected: ${call.name} on #${toolArgs.index} repeated ${duplicateCount} times. Forcing exit.`);
                             return { success: false, summary: `Stuck in loop: repeated ${call.name} on element #${toolArgs.index}` };
+                        }
+
+                        // Detect oscillation pattern: A→B→A→B (bouncing between two elements)
+                        if (actionsTaken.length >= 4) {
+                            const last4 = actionsTaken.slice(-4);
+                            const isOscillating =
+                                last4[0].target === last4[2].target &&
+                                last4[1].target === last4[3].target &&
+                                last4[0].target !== last4[1].target &&
+                                last4[0].action === 'click_element' && last4[1].action === 'click_element';
+
+                            if (isOscillating) {
+                                console.warn(`[Agent] 🔄 Oscillation detected: bouncing between #${last4[0].target} and #${last4[1].target}`);
+                                this.emit('thought', `🔄 Oscillation loop detected: bouncing between elements #${last4[0].target} and #${last4[1].target}. Forcing exit.`);
+                                return { success: false, summary: `Stuck oscillating between elements #${last4[0].target} and #${last4[1].target}` };
+                            }
                         }
 
                         // Wait for navigation to settle after actions that might navigate
@@ -694,7 +613,7 @@ What is the NEXT action to achieve "${subGoal}"?
                     return { success: taskSuccess, summary: taskSummary };
                 }
             } else {
-                workerMemoryAdd(workerMem, 'user', 'No tool used. If done (or stuck), call "task_complete".');
+
             }
 
         }
@@ -828,6 +747,3 @@ What is the NEXT action to achieve "${subGoal}"?
     }
 }
 
-function workerMemoryAdd(mem: MemoryManager, role: 'user' | 'assistant', content: string) {
-    mem.add(role, content);
-}

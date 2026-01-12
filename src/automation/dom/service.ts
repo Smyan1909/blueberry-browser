@@ -62,7 +62,7 @@ export class DomService {
                     throw new Error(`Found library, but 'buildDomTree' is not a function in the library.`);
                 }
 
-                const result = buildDomTreeFn(document.body, highlight);
+                const result = buildDomTreeFn(highlight);
 
                 if (!result) {
                     throw new Error('buildDomTree returned null/undefined');
@@ -409,7 +409,7 @@ export class DomService {
         // 2. Get element boxes AND take screenshot in parallel for speed
         const [elementBoxes, screenshotBuffer] = await Promise.all([
             this.getElementBoxes(),
-            this.page.screenshot({ type: 'jpeg', quality: 85, fullPage: false })
+            this.page.screenshot({ type: 'png', fullPage: false }) // PNG for better label clarity
         ]);
 
         // 3. If no boxes, return raw screenshot (fast path)
@@ -433,35 +433,71 @@ export class DomService {
                         // Draw original screenshot
                         ctx.drawImage(img, 0, 0);
 
-                        // Draw boxes on the canvas
-                        for (const box of boxes) {
-                            // Box fill
-                            ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
-                            ctx.fillRect(box.x, box.y, box.width, box.height);
+                        // Track placed labels to avoid overlap
+                        const placedLabels: Array<{ x: number; y: number; w: number; h: number }> = [];
 
-                            // Box border
-                            ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
-                            ctx.lineWidth = 2;
-                            ctx.strokeRect(box.x, box.y, box.width, box.height);
+                        const checkOverlap = (x: number, y: number, w: number, h: number): boolean => {
+                            for (const label of placedLabels) {
+                                if (!(x + w < label.x || x > label.x + label.w ||
+                                    y + h < label.y || y > label.y + label.h)) {
+                                    return true; // Overlaps
+                                }
+                            }
+                            return false;
+                        };
 
-                            // Label background
+                        // Sort boxes by size (larger elements first) so small elements get priority for labels
+                        const sortedBoxes = [...boxes].sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+                        // Calculate scale factor: screenshot dimensions vs viewport dimensions
+                        // Playwright screenshots are at devicePixelRatio resolution
+                        const dpr = window.devicePixelRatio || 1;
+
+                        // Draw boxes on the canvas (scaled by DPR)
+                        for (const box of sortedBoxes) {
+                            const scaledX = box.x * dpr;
+                            const scaledY = box.y * dpr;
+                            const scaledWidth = box.width * dpr;
+                            const scaledHeight = box.height * dpr;
+
+                            // Box border only (no fill for cleaner look)
+                            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                            ctx.lineWidth = 2 * dpr;
+                            ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+
+                            // Label with better visibility
                             const labelText = box.id;
-                            const labelWidth = labelText.length * 7 + 6;
-                            const labelHeight = 14;
-                            ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
-                            ctx.fillRect(box.x, box.y, labelWidth, labelHeight);
+                            const fontSize = Math.round(14 * dpr);
+                            ctx.font = `bold ${fontSize}px monospace`;
+                            const textMetrics = ctx.measureText(labelText);
+                            const labelWidth = textMetrics.width + 8 * dpr;
+                            const labelHeight = 18 * dpr;
 
-                            // Label text
-                            ctx.fillStyle = 'white';
-                            ctx.font = 'bold 10px monospace';
-                            ctx.fillText(labelText, box.x + 3, box.y + 11);
+                            // Try to place label INSIDE the box (top-left corner) to avoid off-screen issues
+                            const labelX = scaledX + 2 * dpr;
+                            const labelY = scaledY + 2 * dpr;
+
+                            if (!checkOverlap(labelX, labelY, labelWidth, labelHeight)) {
+                                // Draw label background (white with red border)
+                                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                                ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+                                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                                ctx.lineWidth = 1 * dpr;
+                                ctx.strokeRect(labelX, labelY, labelWidth, labelHeight);
+
+                                // Label text (red on white for contrast)
+                                ctx.fillStyle = '#CC0000';
+                                ctx.fillText(labelText, labelX + 4 * dpr, labelY + 14 * dpr);
+
+                                placedLabels.push({ x: labelX, y: labelY, w: labelWidth, h: labelHeight });
+                            }
                         }
 
-                        // Export as base64 (without data URL prefix)
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                        resolve(dataUrl.replace(/^data:image\/jpeg;base64,/, ''));
+                        // Export as base64 PNG
+                        const dataUrl = canvas.toDataURL('image/png');
+                        resolve(dataUrl.replace(/^data:image\/png;base64,/, ''));
                     };
-                    img.src = 'data:image/jpeg;base64,' + imageData;
+                    img.src = 'data:image/png;base64,' + imageData;
                 });
             },
             { imageData: screenshotBase64, boxes: elementBoxes }
@@ -471,7 +507,7 @@ export class DomService {
     }
 
     /**
-     * Get bounding boxes for all elements with data-blueberry-id attributes.
+     * Get bounding boxes for INTERACTIVE elements only (visible in viewport).
      * Returns positions relative to the viewport.
      */
     private async getElementBoxes(): Promise<ElementBox[]> {
@@ -479,14 +515,36 @@ export class DomService {
             const elements = document.querySelectorAll('[data-blueberry-id]');
             const boxes: Array<{ id: string; x: number; y: number; width: number; height: number }> = [];
 
+            // Check if element is interactive (same logic as buildDomTree)
+            const isInteractive = (el: Element): boolean => {
+                const tag = el.tagName.toLowerCase();
+                const style = window.getComputedStyle(el);
+                const role = el.getAttribute('role');
+
+                // Semantic interactive elements
+                if (['button', 'a', 'input', 'select', 'textarea', 'summary'].includes(tag)) return true;
+                // ARIA roles that indicate interactivity
+                if (['button', 'link', 'menuitem', 'checkbox', 'radio', 'tab', 'combobox', 'textbox', 'switch'].includes(role || '')) return true;
+                // Click handlers
+                if (el.hasAttribute('onclick') || el.hasAttribute('ng-click') || el.hasAttribute('@click')) return true;
+                // Pointer cursor indicates clickability
+                if (style.cursor === 'pointer') return true;
+
+                return false;
+            };
+
             elements.forEach((element) => {
                 const id = element.getAttribute('data-blueberry-id');
                 if (!id) return;
 
+                // ONLY include interactive elements
+                if (!isInteractive(element)) return;
+
                 const rect = element.getBoundingClientRect();
 
-                // Skip elements that are too small or not visible
-                if (rect.width < 5 || rect.height < 5) return;
+                // Skip elements too small to interact with
+                if (rect.width < 15 || rect.height < 15) return;
+                // Skip elements outside viewport
                 if (rect.top > window.innerHeight || rect.bottom < 0) return;
                 if (rect.left > window.innerWidth || rect.right < 0) return;
 

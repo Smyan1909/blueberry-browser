@@ -108,7 +108,7 @@ export const ActionRegistry = {
         try { await element.scrollIntoViewIfNeeded(); } catch (e) { }
 
         // Small wait for scroll animation to complete
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 50));
 
         // Get FRESH bounding box AFTER scrolling (important!)
         const box = await element.boundingBox();
@@ -120,24 +120,31 @@ export const ActionRegistry = {
           await domService.highlightClick(x, y);
 
           // Brief delay to let the user see the cursor
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise(r => setTimeout(r, 100));
         }
 
         const modifiers: ('Control' | 'Meta')[] = open_in_new_tab ? ['Control', 'Meta'] : [];
 
         try {
-          // Use short timeout - if click takes too long, a popup is likely blocking
+          // First try normal click with reasonable timeout
           if (open_in_new_tab) {
-            await element.click({ modifiers: modifiers, timeout: 5000 });
+            await element.click({ modifiers: modifiers, timeout: 3000 });
             return `Ctrl+Clicked element #${index} (opened in new tab)`;
           } else {
-            await element.click({ timeout: 5000 });
+            await element.click({ timeout: 3000 });
             return `Clicked element #${index}`;
           }
         } catch (clickError: any) {
-          // Provide actionable error when click times out (usually means popup is blocking)
-          if (clickError.message?.includes('timeout') || clickError.message?.includes('Timeout')) {
-            throw new Error(`Click on #${index} timed out - a popup/modal is probably blocking it! Try press_key({ key: "Escape" }) first to dismiss any overlays.`);
+          // If normal click fails, try force click (bypasses actionability checks)
+          if (clickError.message?.includes('timeout') || clickError.message?.includes('Timeout') ||
+            clickError.message?.includes('intercept') || clickError.message?.includes('Target closed')) {
+            try {
+              console.log(`[Click] Normal click failed on #${index}, trying force click...`);
+              await element.click({ force: true, timeout: 2000 });
+              return `Clicked element #${index} (forced)`;
+            } catch (forceError: any) {
+              throw new Error(`Click on #${index} failed - element may be blocked by an overlay. Try press_key({ key: "Escape" }) first.`);
+            }
           }
           throw clickError;
         }
@@ -178,6 +185,8 @@ export const ActionRegistry = {
 
         if (submit) {
           await page.keyboard.press('Enter');
+          // Give the page a moment to start navigation before next state capture
+          await new Promise(r => setTimeout(r, 500));
           return `Typed "${text}" into #${index} and pressed Enter`;
         }
         return `Typed "${text}" into #${index}`;
