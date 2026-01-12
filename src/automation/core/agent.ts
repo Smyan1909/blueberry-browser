@@ -176,19 +176,21 @@ export class BrowserAgent {
             // Execute each task in sequence on this ONE tab
             for (const task of path) {
                 task.status = 'running';
-                this.emit('thought', `[Agent ${pathIndex}] Executing task ${task.id}: "${task.description}"`);
+                // Emit as action so it doesn't overwrite the "Reasoning" thought in the UI
+                this.emit('action', `[Agent ${pathIndex}] Executing task ${task.id}: "${task.description}"`);
                 this.emit('plan', 'Task running', this.currentPlan);
 
                 const result = await this.runThinkActObserveLoop(
                     workerPage,
                     workerDom,
-                    task.description
+                    task.description,
+                    this.currentPlan!.goal
                 );
 
                 task.status = result.success ? 'completed' : 'failed';
                 // Store the result summary on the task for final summary generation
                 (task as any).result = result.summary;
-                this.emit('thought', `[Agent ${pathIndex}] Task ${task.id} ${result.success ? 'completed' : 'failed'}`);
+                this.emit('action', `[Agent ${pathIndex}] Task ${task.id} ${result.success ? 'completed' : 'failed'}`);
                 this.emit('plan', 'Task updated', this.currentPlan);
 
                 if (!result.success) {
@@ -235,12 +237,11 @@ export class BrowserAgent {
 
             await Promise.all(pathPromises);
 
-            // Generate final summary
-            const summary = await this.generateFinalSummary(
+            // Generate final summary (streamToUI already emits the result)
+            await this.generateFinalSummary(
                 this.currentPlan.goal,
                 this.currentPlan.tasks
             );
-            this.emit('result', summary);
             this.currentPlan.status = 'completed';
             this.emit('plan', 'Plan completed', this.currentPlan);
 
@@ -251,10 +252,11 @@ export class BrowserAgent {
         }
     }
 
-    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string): Promise<{ success: boolean; summary: string }> {
+    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string, mainGoal: string): Promise<{ success: boolean; summary: string }> {
         const workerMem = new MemoryManager(this.llm);
         workerMem.add('system', `You are a browser automation agent executing a sequence of related tasks.
-Your current task: "${subGoal}"
+OVERARCHING GOAL: "${mainGoal}"
+Your current sub-task: "${subGoal}"
 
 You are working in a persistent browser tab. Previous tasks may have already navigated to pages or completed actions. Continue from the current state.
 
@@ -298,13 +300,25 @@ You are working in a persistent browser tab. Previous tasks may have already nav
    - amount: Pixels to scroll (default: 500)
    - Example: scroll_page({ direction: "down", amount: 800 })
 
+### Keyboard Shortcuts
+7. **press_key** - Press a keyboard key (VERY USEFUL for popups!)
+   - key: The key to press ("Escape", "Enter", "Tab", "ArrowDown", etc.)
+   - Example: press_key({ key: "Escape" }) - DISMISSES MOST POPUPS/MODALS
+   - Example: press_key({ key: "Enter" }) - Confirms dialogs
+
 ### Content Extraction
-7. **extract_content** - Extract specific information from the current page
+8. **extract_content** - Extract specific information from the current page
    - goal: Description of what information to extract
    - Example: extract_content({ goal: "Get the main article text" })
 
+### Tab Management
+8. **switch_to_tab** - Switch between open tabs (useful when clicks open new tabs)
+   - tab_index: The tab number to switch to (shown in OPEN TABS list)
+   - Example: switch_to_tab({ tab_index: 1 })
+   - Note: When you click something that opens a new tab, you'll automatically switch to it
+
 ### Task Completion
-8. **task_complete** - Signal task is done
+9. **task_complete** - Signal task is done
    - success: true if goal achieved, false if impossible
    - summary: Brief description of what happened
    - Example: task_complete({ success: true, summary: "Successfully searched for laptops" })
@@ -323,29 +337,137 @@ You are working in a persistent browser tab. Previous tasks may have already nav
 - "Click the login button" → Find the button number, use click_element
 - "Go back to previous page" → Use go_back({})
 
+## HANDLING OVERLAYS AND POPUPS
+⚠️ IF CLICKS DON'T SEEM TO WORK, A POPUP/MODAL IS PROBABLY BLOCKING!
+Common signs: "All Offers" dialogs, cookie banners, login prompts, newsletter signups
+
+**FIRST TRY: press_key({ key: "Escape" })** - This dismisses MOST popups instantly!
+
+If Escape doesn't work:
+1. Look for "Close", "X", "Dismiss", "Accept", "Got it" buttons in the element list
+2. These are usually small elements with just "X" or "Close" text
+3. Click the close button, THEN retry your original action
+
+**WARNING**: If you click the same element 2+ times and nothing changes, STOP and try:
+1. press_key({ key: "Escape" }) first
+2. Look for a different element to click
+3. Scroll to see if there's a close button
+
+## VIDEO SITES (YouTube, Netflix, etc.)
+- Video thumbnails are clickable! Look for elements with "video", "thumbnail", or "watch" in their text/aria-label
+- On YouTube, video titles are links (<a> tags) - click them to play the video
+- The "first video" is usually the first <a> element with a title that sounds like a video name
+- If you see ytd-video-renderer or ytd-thumbnail, the video title link inside is what you click
+- Don't just click element 2 - that's often the logo! Look for elements with video descriptions
+
 ## WHAT TO DO WHEN STUCK
-- If you can't find an element: scroll_page to reveal more content
-- If page hasn't loaded: wait and observe the new screenshot
-- If task is impossible (e.g., needs login): call task_complete with success: false
+- **Clicks not working?** → press_key({ key: "Escape" }) to dismiss popups
+- **Can't find element?** → scroll_page to reveal more content
+- **Page not loaded?** → wait and observe the new screenshot
+- **Same action failing repeatedly?** → TRY A DIFFERENT APPROACH
+- **Task impossible (needs login)?** → call task_complete with success: false
 
 Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
 
+        // Track all actions for loop prevention
+        interface ActionRecord {
+            step: number;
+            action: string;
+            target?: number;
+            result: string;
+        }
+        const actionsTaken: ActionRecord[] = [];
+
+        // Multi-tab tracking: track all pages under agent control
+        interface TrackedTab {
+            page: Page;
+            dom: DomService;
+            url: string;
+            title: string;
+        }
+        const agentTabs: Map<number, TrackedTab> = new Map();
+        let activeTabIndex = 0;
+        let nextTabIndex = 1;
+
+        // Initialize with the primary tab
+        agentTabs.set(0, { page, dom, url: page.url(), title: 'Initial Tab' });
+
+        // Listen for popups (new tabs opened from clicks)
+        const popupHandler = async (newPage: Page) => {
+            const tabIndex = nextTabIndex++;
+            console.log(`[Agent] New tab opened: ${newPage.url()}, assigning index ${tabIndex}`);
+
+            // Wait for the page to be somewhat ready
+            await newPage.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+
+            // Create DomService for the new tab and enable spectator mode
+            const newDom = new DomService(newPage);
+            await newDom.enableSpectatorMode(`Tab-${tabIndex}`);
+
+            const title = await newPage.title().catch(() => 'New Tab');
+            agentTabs.set(tabIndex, {
+                page: newPage,
+                dom: newDom,
+                url: newPage.url(),
+                title
+            });
+
+            // Auto-switch to the new tab
+            activeTabIndex = tabIndex;
+            this.emit('action', `[Agent] Switched to new tab ${tabIndex}: ${newPage.url()}`);
+        };
+
+        // Attach popup listener to all tracked pages
+        page.on('popup', popupHandler);
+
+        // Helper to get current active tab
+        const getActiveTab = (): TrackedTab => {
+            const tab = agentTabs.get(activeTabIndex);
+            if (!tab) {
+                // Fallback to primary tab if active is somehow missing
+                return agentTabs.get(0)!;
+            }
+            return tab;
+        };
+
+        // Helper to build tab list for LLM context
+        const getTabListText = (): string => {
+            if (agentTabs.size <= 1) return ''; // Don't show if only one tab
+
+            const lines: string[] = ['## OPEN TABS'];
+            for (const [idx, tab] of agentTabs) {
+                const isActive = idx === activeTabIndex;
+                const shortUrl = tab.url.length > 60 ? tab.url.substring(0, 60) + '...' : tab.url;
+                lines.push(`[${idx}] ${shortUrl}${isActive ? ' ← ACTIVE' : ''}`);
+            }
+            lines.push('Use switch_to_tab({ tab_index: N }) to switch between tabs.\n');
+            return lines.join('\n');
+        };
+
         let stepCount = 0;
-        const MAX_STEPS = 50;
+        const MAX_STEPS = 25; // Reduced from 50 to fail faster on loops
 
         while (stepCount < MAX_STEPS) {
             stepCount++;
+
+            // Get the currently active tab (may have changed due to popups)
+            const activeTab = getActiveTab();
+            const activePage = activeTab.page;
+            const activeDom = activeTab.dom;
+
+            // Update URL tracking for tab list display
+            activeTab.url = activePage.url();
 
             // Use Set-of-Mark prompting: capture screenshot with highlights, then remove them
             // Retry once if context is destroyed due to navigation
             let state;
             try {
-                state = await dom.captureStateWithScreenshot();
+                state = await activeDom.captureStateWithScreenshot();
             } catch (error: any) {
                 if (error.message?.includes('context was destroyed') || error.message?.includes('navigation')) {
                     // Wait for navigation to complete and retry
-                    await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
-                    state = await dom.captureStateWithScreenshot();
+                    await activePage.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => { });
+                    state = await activeDom.captureStateWithScreenshot();
                 } else {
                     throw error;
                 }
@@ -368,6 +490,13 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
                 }).join('\n')
                 : 'No interactive elements found';
 
+            // Build action history text for context
+            const actionHistoryText = actionsTaken.length > 0
+                ? actionsTaken.map(a =>
+                    `• Step ${a.step}: ${a.action}${a.target !== undefined ? ` #${a.target}` : ''} → ${a.result}`
+                ).join('\n')
+                : 'None yet';
+
             const context = [
                 ...history,
                 {
@@ -382,12 +511,20 @@ Remember: You're interacting with PAGE CONTENT only. Use navigate() for URLs!`);
                         },
                         {
                             type: 'text',
-                            text: `Screenshot shows numbered elements (Set-of-Mark). Use these IDs to interact.
+                            text: `## GOALS (Always Keep In Mind)
+🎯 MAIN GOAL: "${mainGoal}"
+📌 CURRENT SUB-TASK: "${subGoal}"
 
-Interactive Elements (${interactiveElements.length} total):
+## ACTIONS TAKEN (Do NOT Repeat These)
+${actionHistoryText}
+
+${getTabListText()}## CURRENT PAGE STATE
+Interactive Elements (${interactiveElements.length}):
 ${elementsText}
 
-What action should I take next to achieve: "${subGoal}"?`
+## YOUR TASK
+What is the NEXT action to achieve "${subGoal}"?
+⚠️ CRITICAL: Do NOT repeat any action from the list above. If a previous action didn't work, try a DIFFERENT approach.`
                         }
                     ]
                 }
@@ -397,7 +534,7 @@ What action should I take next to achieve: "${subGoal}"?`
             const response = await this.llm.generate(context, tools);
 
             this.emit('thought', `[${subGoal}] ${response.content}`);
-            await dom.updateSpectatorThought(response.content);
+            await activeDom.updateSpectatorThought(response.content);
             workerMemoryAdd(workerMem, 'assistant', response.content);
 
             if (response.toolCalls && response.toolCalls.length > 0) {
@@ -412,16 +549,59 @@ What action should I take next to achieve: "${subGoal}"?`
                     this.emit('action', `[${subGoal}] Executing ${call.name}`, toolArgs);
                     console.log(`[Agent] Tool call: ${call.name}, args:`, JSON.stringify(toolArgs));
 
+                    // Handle switch_to_tab specially - it modifies activeTabIndex
+                    if (call.name === 'switch_to_tab') {
+                        const tabIndex = (toolArgs as any).tab_index;
+                        if (agentTabs.has(tabIndex)) {
+                            activeTabIndex = tabIndex;
+                            const result = `Switched to tab ${tabIndex}: ${agentTabs.get(tabIndex)!.url}`;
+                            this.emit('action', `[${subGoal}] ${result}`);
+                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Switched' });
+                            continue;
+                        } else {
+                            const result = `Error: Tab ${tabIndex} not found. Available tabs: ${Array.from(agentTabs.keys()).join(', ')}`;
+                            workerMemoryAdd(workerMem, 'user', `Tool ${call.name} result: ${result}`);
+                            continue;
+                        }
+                    }
+
                     const tool = Object.values(ActionRegistry).find(t => t.name === call.name);
                     if (tool) {
                         const result = await tool.execute(toolArgs, {
-                            page: page,
+                            page: activePage,
                             selectorMap: state.selectorMap,
-                            domService: dom
+                            domService: activeDom
                         });
 
                         this.emit('action', `[${subGoal}] Result: ${result.output}`);
                         workerMemoryAdd(workerMem, 'user', `Tool(${call.name}): ${result.output}`);
+
+                        // Track action for loop prevention
+                        actionsTaken.push({
+                            step: stepCount,
+                            action: call.name,
+                            target: toolArgs.index,
+                            result: result.output.substring(0, 80)
+                        });
+
+                        // Detect and warn on duplicate actions
+                        const duplicateCount = actionsTaken.filter(a =>
+                            a.action === call.name && a.target === toolArgs.index && a.target !== undefined
+                        ).length;
+
+                        if (duplicateCount >= 2) {
+                            console.warn(`[Agent] ⚠️ Duplicate action detected: ${call.name} on #${toolArgs.index} (${duplicateCount}x)`);
+                            workerMemoryAdd(workerMem, 'user',
+                                `⚠️ WARNING: You've performed ${call.name} on element #${toolArgs.index} ${duplicateCount} times. This action may not be working. Try a DIFFERENT element or approach!`
+                            );
+                        }
+
+                        // Force exit if same action repeated 4+ times (definite loop)
+                        if (duplicateCount >= 4) {
+                            this.emit('thought', `🔄 Loop detected: ${call.name} on #${toolArgs.index} repeated ${duplicateCount} times. Forcing exit.`);
+                            return { success: false, summary: `Stuck in loop: repeated ${call.name} on element #${toolArgs.index}` };
+                        }
 
                         // Wait for navigation to settle after actions that might navigate
                         // (e.g., input_text with submit, click, navigate)
@@ -444,11 +624,29 @@ What action should I take next to achieve: "${subGoal}"?`
                 }
 
                 // Exit if agent called task_complete (success OR failure)
-                if (taskCompleted) return { success: taskSuccess, summary: taskSummary };
+                if (taskCompleted) {
+                    // Cleanup: remove popup listener and close extra tabs
+                    page.off('popup', popupHandler);
+                    for (const [idx, tab] of agentTabs) {
+                        if (idx !== 0) { // Don't close the primary tab
+                            await tab.dom.disableSpectatorMode().catch(() => { });
+                            await tab.page.close().catch(() => { });
+                        }
+                    }
+                    return { success: taskSuccess, summary: taskSummary };
+                }
             } else {
                 workerMemoryAdd(workerMem, 'user', 'No tool used. If done (or stuck), call "task_complete".');
             }
 
+        }
+        // Cleanup on max steps
+        page.off('popup', popupHandler);
+        for (const [idx, tab] of agentTabs) {
+            if (idx !== 0) {
+                await tab.dom.disableSpectatorMode().catch(() => { });
+                await tab.page.close().catch(() => { });
+            }
         }
         return { success: false, summary: 'Max steps reached without completion' };
     }

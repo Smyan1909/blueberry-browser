@@ -122,12 +122,21 @@ export const ActionRegistry = {
 
         const modifiers: ('Control' | 'Meta')[] = open_in_new_tab ? ['Control', 'Meta'] : [];
 
-        if (open_in_new_tab) {
-          await element.click({ modifiers: modifiers });
-          return `Ctrl+Clicked element #${index} (opened in new tab)`;
-        } else {
-          await element.click();
-          return `Clicked element #${index}`;
+        try {
+          // Use short timeout - if click takes too long, a popup is likely blocking
+          if (open_in_new_tab) {
+            await element.click({ modifiers: modifiers, timeout: 5000 });
+            return `Ctrl+Clicked element #${index} (opened in new tab)`;
+          } else {
+            await element.click({ timeout: 5000 });
+            return `Clicked element #${index}`;
+          }
+        } catch (clickError: any) {
+          // Provide actionable error when click times out (usually means popup is blocking)
+          if (clickError.message?.includes('timeout') || clickError.message?.includes('Timeout')) {
+            throw new Error(`Click on #${index} timed out - a popup/modal is probably blocking it! Try press_key({ key: "Escape" }) first to dismiss any overlays.`);
+          }
+          throw clickError;
         }
       });
     }
@@ -191,6 +200,24 @@ export const ActionRegistry = {
     }
   } as ActionTool<{ direction: 'up' | 'down'; amount: number }>,
 
+  // Keyboard action - essential for dismissing popups and modals
+  press_key: {
+    name: 'press_key',
+    description: 'Press a keyboard key. Use Escape to dismiss popups/modals, Enter to confirm, Tab to move focus.',
+    schema: z.object({
+      key: z.string().describe('The key to press (e.g., "Escape", "Enter", "Tab", "ArrowDown")')
+    }),
+    execute: async (params, { page }) => {
+      return safeExecute(async () => {
+        const { key } = params || {};
+        if (!key) throw new Error('Missing required parameter "key"');
+        await page.keyboard.press(key);
+        await page.waitForTimeout(300); // Brief wait for modal animations
+        return `Pressed ${key} key`;
+      });
+    }
+  } as ActionTool<{ key: string }>,
+
   // --- TABS ---
 
   open_tab: {
@@ -211,9 +238,23 @@ export const ActionRegistry = {
     }
   } as ActionTool<{ url: string }>,
 
+  // switch_to_tab - for agent's internal tab tracking (handled specially in agent.ts)
+  switch_to_tab: {
+    name: 'switch_to_tab',
+    description: 'Switch to a different tab that was opened by clicking. Use tab indices shown in the OPEN TABS list.',
+    schema: z.object({
+      tab_index: z.number().describe('The tab index to switch to (shown in OPEN TABS list)')
+    }),
+    execute: async (_params) => {
+      // This is handled specially in agent.ts, this execute won't be called
+      return { success: true, output: 'Tab switch handled by agent' };
+    }
+  } as ActionTool<{ tab_index: number }>,
+
+  // Legacy switch_tab kept for now but deprecated
   switch_tab: {
     name: 'switch_tab',
-    description: 'Switch focus to a different browser tab.',
+    description: 'DEPRECATED - Use switch_to_tab instead. Switch focus to a browser tab by context index.',
     schema: z.object({
       page_index: z.number()
     }),

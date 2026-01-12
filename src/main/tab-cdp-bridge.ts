@@ -45,12 +45,12 @@ async function getAllPages(): Promise<Page[]> {
   const { browser } = await getBrowserConnection();
   const contexts = browser.contexts();
   const allPages: Page[] = [];
-  
+
   for (const context of contexts) {
     const pages = context.pages();
     allPages.push(...pages);
   }
-  
+
   return allPages;
 }
 
@@ -60,31 +60,31 @@ async function getAllPages(): Promise<Page[]> {
 function matchPageByUrl(playwrightPage: Page, tabUrl: string): boolean {
   try {
     const pageUrl = playwrightPage.url();
-    
+
     // Exact match
     if (pageUrl === tabUrl) {
       return true;
     }
-    
+
     // For file:// URLs, match by normalized path
     if (tabUrl.startsWith('file://') && pageUrl.startsWith('file://')) {
       const normalizeUrl = (url: string) => url.replace(/\\/g, '/').toLowerCase();
       return normalizeUrl(pageUrl) === normalizeUrl(tabUrl);
     }
-    
+
     // For http/https URLs, try to match by hostname and path
     try {
       const tabUrlObj = new URL(tabUrl);
       const pageUrlObj = new URL(pageUrl);
-      
-      if (tabUrlObj.hostname === pageUrlObj.hostname && 
-          tabUrlObj.pathname === pageUrlObj.pathname) {
+
+      if (tabUrlObj.hostname === pageUrlObj.hostname &&
+        tabUrlObj.pathname === pageUrlObj.pathname) {
         return true;
       }
     } catch {
       // Invalid URLs, skip
     }
-    
+
     return false;
   } catch {
     return false;
@@ -100,10 +100,10 @@ export async function getPlaywrightPageForTab(tab: Tab): Promise<{ page: Page; c
   try {
     const allPages = await getAllPages();
     const tabUrl = tab.url;
-    
+
     // First, try exact URL match
     let matchedPage = allPages.find(page => matchPageByUrl(page, tabUrl));
-    
+
     // If no exact match and tab URL is not yet loaded, try matching by title
     if (!matchedPage && tab.title && tab.title !== 'New Tab') {
       for (const page of allPages) {
@@ -119,36 +119,36 @@ export async function getPlaywrightPageForTab(tab: Tab): Promise<{ page: Page; c
         }
       }
     }
-    
+
     // If still no match and there's only one non-devtools page, use it
     if (!matchedPage) {
       const nonDevtoolsPages = allPages.filter(page => {
         const url = page.url();
-        return !url.includes('chrome-devtools://') && 
-               !url.includes('devtools://');
+        return !url.includes('chrome-devtools://') &&
+          !url.includes('devtools://');
       });
-      
+
       if (nonDevtoolsPages.length === 1) {
         matchedPage = nonDevtoolsPages[0];
       }
     }
-    
+
     if (!matchedPage) {
       console.warn(`[CDP Bridge] Could not find matching Playwright page for tab ${tab.id} with URL: ${tabUrl}`);
       return null;
     }
-    
+
     // Get the context that owns this page
     const { browser } = await getBrowserConnection();
     const contexts = browser.contexts();
-    
+
     for (const context of contexts) {
       const pages = context.pages();
       if (pages.includes(matchedPage)) {
         return { page: matchedPage, context };
       }
     }
-    
+
     console.warn(`[CDP Bridge] Could not find browser context for matched page`);
     return null;
   } catch (error) {
@@ -165,7 +165,7 @@ export async function getPlaywrightPageForTab(tab: Tab): Promise<{ page: Page; c
  */
 export async function createAgentWorkerPage(url: string = 'about:blank'): Promise<{ page: Page; context: BrowserContext; tabId: string } | null> {
   console.log(`[CDP Bridge] createAgentWorkerPage called with url: ${url}`);
-  
+
   try {
     const mainWindow = getMainWindow();
     if (!mainWindow) {
@@ -178,17 +178,17 @@ export async function createAgentWorkerPage(url: string = 'about:blank'): Promis
     console.log('[CDP Bridge] Getting browser connection...');
     const { context } = await getBrowserConnection();
     console.log('[CDP Bridge] Got browser context');
-    
+
     // Get current pages for comparison
     const pagesBefore = context.pages();
     const pageUrlsBefore = new Set(pagesBefore.map(p => p.url()));
     console.log(`[CDP Bridge] Pages before tab creation: ${pagesBefore.length}, URLs: ${Array.from(pageUrlsBefore).join(', ')}`);
-    
+
     // Create a new tab in Electron
     console.log('[CDP Bridge] Creating new Electron tab...');
     const tab = mainWindow.createTab(url);
     const tabId = tab.id;
-    
+
     console.log(`[CDP Bridge] Created agent worker tab ${tabId}`);
 
     // Track this tab for cleanup
@@ -196,7 +196,7 @@ export async function createAgentWorkerPage(url: string = 'about:blank'): Promis
 
     // Try waitForEvent first with a short timeout, then fall back to polling
     let newPage: Page | null = null;
-    
+
     // Method 1: Try waitForEvent with short timeout
     console.log('[CDP Bridge] Trying waitForEvent approach...');
     try {
@@ -205,38 +205,38 @@ export async function createAgentWorkerPage(url: string = 'about:blank'): Promis
       console.log(`[CDP Bridge] Captured new page via waitForEvent: ${newPage.url()}`);
     } catch (eventError) {
       console.log('[CDP Bridge] waitForEvent timed out, falling back to polling...');
-      
+
       // Method 2: Poll for new pages
       const maxAttempts = 20;
       const pollInterval = 250;
-      
+
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const pagesNow = context.pages();
         console.log(`[CDP Bridge] Polling attempt ${attempt + 1}: ${pagesNow.length} pages`);
-        
+
         // Find a page that wasn't there before
         for (const page of pagesNow) {
           const pageUrl = page.url();
-          if (!pageUrlsBefore.has(pageUrl) || 
-              (pageUrl === 'about:blank' && pagesNow.length > pagesBefore.length)) {
+          if (!pageUrlsBefore.has(pageUrl) ||
+            (pageUrl === 'about:blank' && pagesNow.length > pagesBefore.length)) {
             newPage = page;
             console.log(`[CDP Bridge] Found new page via polling: ${pageUrl}`);
             break;
           }
         }
-        
+
         if (newPage) break;
-        
+
         await new Promise(resolve => setTimeout(resolve, pollInterval));
       }
     }
-    
+
     if (!newPage) {
       throw new Error('Could not capture new page via CDP - neither waitForEvent nor polling worked');
     }
-    
+
     console.log(`[CDP Bridge] Captured new page: ${newPage.url()}`);
-    
+
     // Wait for the page to be ready
     await newPage.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {
       // Ignore timeout for about:blank
@@ -249,13 +249,13 @@ export async function createAgentWorkerPage(url: string = 'about:blank'): Promis
     if (url !== 'about:blank' && newPage.url() !== url) {
       await newPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     }
-    
+
     console.log(`[CDP Bridge] Successfully connected to agent worker page for tab ${tabId}`);
     return { page: newPage, context, tabId };
-    
+
   } catch (error: any) {
     console.error('[CDP Bridge] Error creating agent worker page:', error?.message || error);
-    
+
     // Try to clean up the tab if we created it
     const mainWindow = getMainWindow();
     if (mainWindow) {
@@ -269,7 +269,7 @@ export async function createAgentWorkerPage(url: string = 'about:blank'): Promis
         }
       }
     }
-    
+
     return null;
   }
 }
@@ -323,7 +323,7 @@ export async function cleanupAgentWorkerTabs(): Promise<void> {
 export async function closeBrowserConnection(): Promise<void> {
   // First clean up any agent worker tabs
   await cleanupAgentWorkerTabs();
-  
+
   if (cachedBrowser) {
     try {
       await cachedBrowser.close();

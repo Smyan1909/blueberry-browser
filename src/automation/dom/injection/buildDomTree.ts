@@ -24,6 +24,9 @@ export function buildDomTree(doHighlight: boolean = false): any {
     }
 
     const root = document.body;
+    if (!root) {
+        return { tree: null, mapCount: 0 };
+    }
 
     const simplifiedTree = recursiveTraverse(root);
 
@@ -39,10 +42,14 @@ export function buildDomTree(doHighlight: boolean = false): any {
 }
 
 function recursiveTraverse(node: Element, parentId?: number): ElementData | null {
+    if (!node) return null;
 
     // Skip blueberry UI elements (overlay, cursor, highlights) - they should not be in the DOM tree
-    const nodeId = node.id;
-    if (nodeId && (
+    // Skip blueberry UI elements (overlay, cursor, highlights) - they should not be in the DOM tree
+    // Use getAttribute('id') because accessing node.id directly might return an element 
+    // if the form contains an input with name="id" (DOM clobbering)
+    const nodeId = typeof node.getAttribute === 'function' ? node.getAttribute('id') : null;
+    if (nodeId && typeof nodeId === 'string' && (
         nodeId === 'blueberry-spectator-overlay' ||
         nodeId === 'blueberry-cursor' ||
         nodeId === 'blueberry-highlight-container' ||
@@ -64,7 +71,6 @@ function recursiveTraverse(node: Element, parentId?: number): ElementData | null
     if (!isVisible) return null;
 
     const isInteractive = checkInteractivity(node, style);
-
 
     let rawChildren = Array.from(node.children);
     if (node.shadowRoot) {
@@ -146,6 +152,41 @@ function checkInteractivity(node: Element, style: CSSStyleDeclaration): boolean 
 
     // Form Labels are interactive because clicking them focuses the input
     if (tagName === 'label') return true;
+
+    // === ENHANCED DETECTION FOR VIDEO SITES ===
+    // YouTube uses custom elements like ytd-video-renderer, ytd-thumbnail, etc.
+    if (tagName.startsWith('ytd-') || tagName.startsWith('ytm-')) {
+        // YouTube custom elements - check if they're clickable (have href-containing children or are thumbnails)
+        const ariaLabel = node.getAttribute('aria-label');
+        if (ariaLabel && (ariaLabel.toLowerCase().includes('video') || ariaLabel.toLowerCase().includes('watch'))) {
+            return true;
+        }
+        // Thumbnails are clickable
+        if (tagName.includes('thumbnail') || tagName.includes('video')) {
+            return true;
+        }
+    }
+
+    // Common video thumbnail patterns across sites
+    const id = typeof node.getAttribute === 'function' ? node.getAttribute('id') || '' : '';
+    const className = node.className && typeof node.className === 'string' ? node.className : '';
+    const ariaLabel = node.getAttribute('aria-label') || '';
+
+    // Check for video-related identifiers
+    const videoKeywords = ['video', 'thumbnail', 'play-button', 'player', 'watch'];
+    const combined = (id + ' ' + className + ' ' + ariaLabel).toLowerCase();
+    if (videoKeywords.some(kw => combined.includes(kw)) && style.cursor !== 'default') {
+        return true;
+    }
+
+    // Images can be clickable (thumbnails, video previews)
+    if (tagName === 'img') {
+        // If image has alt text suggesting it's a video thumbnail
+        const alt = node.getAttribute('alt') || '';
+        if (alt.toLowerCase().includes('video') || alt.toLowerCase().includes('thumbnail')) {
+            return true;
+        }
+    }
 
     return false;
 }

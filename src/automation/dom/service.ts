@@ -179,11 +179,23 @@ export class DomService {
                 cursor.style.top = '0';
                 cursor.style.left = '0';
 
+                // Helper to set innerHTML safely (Trusted Types)
+                const setInnerHTML = (el: Element, html: string) => {
+                    if (window.trustedTypes && window.trustedTypes.createPolicy) {
+                        const policy = window.trustedTypes.createPolicy('blueberry-policy', {
+                            createHTML: (string) => string
+                        });
+                        el.innerHTML = policy.createHTML(html) as any;
+                    } else {
+                        el.innerHTML = html;
+                    }
+                };
+
                 const arrow = document.createElement('div');
-                arrow.innerHTML = `
+                setInnerHTML(arrow, `
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M5.65376 12.3673H5.46026L5.31717 12.4976L0.500002 16.8829L0.500002 1.19841L11.7841 12.3673H5.65376Z" fill="#0EA5E9" stroke="white"/>
-                  </svg>`;
+                  </svg>`);
 
                 const tag = document.createElement('div');
                 tag.id = 'blueberry-cursor-label';
@@ -267,15 +279,52 @@ export class DomService {
                 fontFamily: 'sans-serif'
             });
 
+            // Helper to set innerHTML safely (Trusted Types)
+            const setInnerHTML = (el: Element, html: string) => {
+                if (window.trustedTypes && window.trustedTypes.createPolicy) {
+                    // Check if policy already exists to dedupe
+                    let policy = window.trustedTypes.defaultPolicy;
+                    if (!policy) {
+                        try {
+                            policy = window.trustedTypes.createPolicy('blueberry-policy', {
+                                createHTML: (string) => string
+                            });
+                        } catch (e) {
+                            // Policy might be strict or already exist with different name, try to reuse or fallback
+                            // For now, if we can't create it, we might be blocked. 
+                            // But createPolicy throws if name exists. 
+                            // Just ignore error and try assignment, browser might block it but we tried.
+                        }
+                    }
+                    // Since we can't easily get a specific policy by name if we didn't just create it, 
+                    // and defaultPolicy applies to direct assignment...
+                    // Actually, best practice in injection script is to try/catch creation 
+                    // or just check for existence. Since this is an EVAL script, scope is unique-ish but global registry persists.
+                    // We'll try to create a unique one or reuse.
+                    if (!window.blueberryPolicy) {
+                        try {
+                            window.blueberryPolicy = window.trustedTypes.createPolicy('blueberry-policy-' + Math.random(), {
+                                createHTML: s => s
+                            });
+                        } catch (e) { }
+                    }
+                    if (window.blueberryPolicy) {
+                        el.innerHTML = window.blueberryPolicy.createHTML(html);
+                        return;
+                    }
+                }
+                el.innerHTML = html;
+            };
+
             const style = document.createElement('style');
-            style.innerHTML = `
+            setInnerHTML(style, `
                 @keyframes pulse-border {
                     0% { border-color: rgba(14, 165, 233, 0.5); }
                     50% { border-color: rgba(14, 165, 233, 1); }
                     100% { border-color: rgba(14, 165, 233, 0.5); }
                 }
                 #${overlayId} { animation: pulse-border 2s infinite; }
-            `;
+            `);
 
             document.head.appendChild(style);
 
@@ -296,16 +345,19 @@ export class DomService {
                 opacity: '0.95',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '8px'
+                gap: '8px',
+                maxWidth: '400px',
+                maxHeight: '200px',
+                overflowY: 'auto'
             });
 
-            dashboard.innerHTML = `
+            setInnerHTML(dashboard, `
                 <div style="display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #334155; padding-bottom: 8px; margin-bottom: 4px;">
                     <div style="width: 8px; height: 8px; background-color: #22c55e; border-radius: 50%;"></div>
                     <span style="font-weight: bold; font-size: 12px; text-transform: uppercase; color: #94a3b8;">Agent ${id}</span>
                 </div>
                 <div id="blueberry-thought-text" style="color: #e2e8f0; font-style: italic;">Initializing...</div>
-            `;
+            `);
 
             overlay.appendChild(dashboard);
             document.body.appendChild(overlay);

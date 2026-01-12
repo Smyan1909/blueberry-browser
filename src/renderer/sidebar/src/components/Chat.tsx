@@ -340,11 +340,11 @@ const PlanVisualization: React.FC<{
             {/* Latest Thought - only show when not awaiting approval */}
             {!isAwaitingApproval && latestThought && (
                 <div className="px-4 py-3 border-t border-border bg-muted/30">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 h-32">
                         <Brain className="size-4 text-primary mt-0.5 flex-shrink-0" />
-                        <p className="text-xs text-muted-foreground italic line-clamp-2">
-                            {latestThought.message}
-                        </p>
+                        <div className="text-xs text-muted-foreground h-full w-full overflow-y-auto scrollbar-thin pr-2">
+                            <Markdown content={latestThought.message} />
+                        </div>
                     </div>
                 </div>
             )}
@@ -472,7 +472,7 @@ const ConversationTurnComponent: React.FC<{
                 isStreaming={turn.assistant.isStreaming}
             />
         )}
-        {isLoading && !plan && (
+        {isLoading && (!plan || plan.status === 'completed') && (
             <div className="flex justify-start">
                 <LoadingIndicator />
             </div>
