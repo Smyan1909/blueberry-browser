@@ -4,6 +4,7 @@ import { UnifiedLLMProvider } from '../automation';
 import { AGENT_EVENTS } from '../shared/ipc-events';
 import { getPlaywrightPageForTab } from './tab-cdp-bridge';
 import { AgentMessageManager } from './agent-message-manager';
+import { handleFileTask } from '../automation/action/file-processor';
 import type { Window } from './Window';
 
 let activeAgent: BrowserAgent | null = null;
@@ -15,8 +16,12 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
   windowInstance = window;
   messageManager = new AgentMessageManager(sidebarWebContents);
 
-  ipcMain.handle(AGENT_EVENTS.START, async (_event, goal: string) => {
+  ipcMain.handle(AGENT_EVENTS.START, async (_event, payload: { goal: string, file?: { name: string, data: ArrayBuffer } }) => {
     try {
+
+      const goal = typeof payload === 'string' ? payload : payload.goal;
+      // const attachedFile = typeof payload === 'object' ? payload.file : undefined;
+
       console.log('[Agent Handler] Starting agent with goal:', goal);
 
       // Get active tab from window
@@ -35,8 +40,8 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
 
       // Initialize LLM provider
       const provider = process.env.LLM_PROVIDER?.toLowerCase() || 'openai';
-      const apiKey = provider === 'anthropic' 
-        ? process.env.ANTHROPIC_API_KEY 
+      const apiKey = provider === 'anthropic'
+        ? process.env.ANTHROPIC_API_KEY
         : process.env.OPENAI_API_KEY;
 
       if (!apiKey) {
@@ -51,7 +56,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
       // Create or reuse agent
       const agentId = 'agent-session-1';
       activeAgentId = agentId;
-      
+
       if (!activeAgent) {
         activeAgent = new BrowserAgent(context, page, llm, {
           id: agentId,
@@ -61,7 +66,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
             if (messageManager) {
               messageManager.handleAgentEvent(agentEvent);
             }
-            
+
             // Also send raw agent events for any direct listeners
             if (!sidebarWebContents.isDestroyed()) {
               sidebarWebContents.send(AGENT_EVENTS.STREAM, agentEvent);
@@ -111,7 +116,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
       return { success: true, planCompleted: false, planId: plan.id };
     } catch (error: any) {
       console.error('[Agent Handler] Error starting agent:', error);
-      
+
       // Send error to message manager
       if (messageManager) {
         messageManager.handleAgentEvent({
@@ -121,7 +126,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
           timestamp: Date.now()
         });
       }
-      
+
       return { success: false, error: error.message };
     }
   });
@@ -149,7 +154,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
       return { success: true };
     } catch (error: any) {
       console.error('[Agent Handler] Error executing plan:', error);
-      
+
       if (messageManager) {
         messageManager.handleAgentEvent({
           agentId: activeAgentId || 'unknown',
@@ -158,7 +163,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
           timestamp: Date.now()
         });
       }
-      
+
       return { success: false, error: error.message };
     }
   });
@@ -175,7 +180,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
       return { success: true, plan: revisedPlan };
     } catch (error: any) {
       console.error('[Agent Handler] Error revising plan:', error);
-      
+
       if (messageManager) {
         messageManager.handleAgentEvent({
           agentId: activeAgentId || 'unknown',
@@ -184,7 +189,7 @@ export function setupAgentHandler(window: Window, sidebarWebContents: Electron.W
           timestamp: Date.now()
         });
       }
-      
+
       return { success: false, error: error.message };
     }
   });
@@ -200,7 +205,7 @@ export function getMessageManager(): AgentMessageManager | null {
 /**
  * Handle a chat message by sending it to the agent
  */
-export async function handleChatMessage(goal: string): Promise<void> {
+export async function handleChatMessage(goal: string, file?: { name: string, data: ArrayBuffer }): Promise<void> {
   if (!windowInstance || !messageManager) {
     throw new Error('Agent handler not initialized');
   }
@@ -221,8 +226,8 @@ export async function handleChatMessage(goal: string): Promise<void> {
 
   // Initialize LLM provider
   const provider = process.env.LLM_PROVIDER?.toLowerCase() || 'openai';
-  const apiKey = provider === 'anthropic' 
-    ? process.env.ANTHROPIC_API_KEY 
+  const apiKey = provider === 'anthropic'
+    ? process.env.ANTHROPIC_API_KEY
     : process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -234,11 +239,74 @@ export async function handleChatMessage(goal: string): Promise<void> {
     apiKey
   );
 
-  // Create or update agent
+  // Setup basic agent info
   const sidebarWebContents = windowInstance.sidebar.view.webContents;
   const agentId = 'agent-session-1';
   activeAgentId = agentId;
-  
+
+  // Handle file task if file is provided
+  if (file) {
+    if (messageManager) {
+      messageManager.addUserMessage({
+        message: goal + `\n\n[Attached File: ${file.name}]`,
+        messageId: Date.now().toString()
+      });
+      messageManager.setActiveAgent(agentId);
+
+      messageManager.handleAgentEvent({
+        type: 'thought',
+        agentId: 'file-processor',
+        message: "Processing file with Python code interpreter...",
+        timestamp: Date.now()
+      });
+    }
+
+    try {
+      const result = await handleFileTask(file.data, file.name, goal, llm);
+
+      let outputText = "File processed successfully.\n";
+
+      if (result.stdout) {
+        outputText += `\n**Stdout:**\n\`\`\`\n${result.stdout}\n\`\`\``;
+      }
+      if (result.stderr) {
+        outputText += `\n**Stderr:**\n\`\`\`\n${result.stderr}\n\`\`\``;
+      }
+      if (result.error) {
+        outputText += `\n**Error:**\n${result.error}`;
+      }
+
+      if (result.artifacts && result.artifacts.length > 0) {
+        outputText += `\n\n**Artifacts generated:**\n` + result.artifacts.map(a => `- ${a.name}`).join('\n');
+        // Note: In a real implementation, we would pass the artifact data to the frontend to display/download
+      } else if (result.results && result.results.length > 0) {
+        result.results.forEach(res => {
+          if (res.text) outputText += `\n${res.text}`;
+        });
+      }
+
+      if (messageManager) {
+        messageManager.handleAgentEvent({
+          type: 'result',
+          agentId: 'file-processor',
+          message: outputText,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error: any) {
+      if (messageManager) {
+        messageManager.handleAgentEvent({
+          type: 'error',
+          agentId: 'file-processor',
+          message: `Error processing file: ${error.message}`,
+          timestamp: Date.now()
+        });
+      }
+    }
+    return;
+  }
+
+  // Standard Agent Flow
   if (!activeAgent) {
     activeAgent = new BrowserAgent(context, page, llm, {
       id: agentId,
@@ -256,19 +324,16 @@ export async function handleChatMessage(goal: string): Promise<void> {
   }
 
   // Add user message to conversation
-  const messageId = Date.now().toString();
   if (messageManager) {
     messageManager.addUserMessage({
       message: goal,
-      messageId
+      messageId: Date.now().toString()
     });
     messageManager.setActiveAgent(agentId);
   }
 
   // Create plan and send to UI for approval
-  // Execution happens only after user approves via APPROVE_PLAN event
-  const plan = await activeAgent.plan(goal);
-  // Plan is now sent to UI via agent events - user must approve before execution
+  await activeAgent.plan(goal);
 }
 
 /**

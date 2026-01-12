@@ -7,6 +7,7 @@ interface ChatRequest {
     content: string | null;
     text: string | null;
   };
+  file?: { name: string; data: ArrayBuffer };
   messageId: string;
 }
 
@@ -54,7 +55,7 @@ interface Plan {
 
 interface SidebarAPI {
   // Chat functionality
-  sendChatMessage: (request: ChatRequest) => Promise<void>;
+  sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
   removeChatResponseListener: () => void;
   onMessagesUpdated: (callback: (messages: any[]) => void) => void;

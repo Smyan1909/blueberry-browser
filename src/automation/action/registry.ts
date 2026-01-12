@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { Page, ElementHandle } from 'playwright';
 import { DomService } from '../dom';
+import { E2BService } from '../sandbox/e2b-service';
+
+const e2b = new E2BService();
 
 export interface ActionTool<T = any> {
   name: string;
@@ -337,6 +340,42 @@ export const ActionRegistry = {
       return { success, output: summary };
     }
   } as ActionTool<{ success: boolean; summary: string }>
+
+  ,
+
+  // --- DATA ANALYSIS ---
+
+  analyze_data: {
+    name: 'analyze_data',
+    description: 'Run Python code in a secure sandbox to analyze data, manipulate files, or perform calculations. You can verify the output via stdout/stderr which is returned.',
+    schema: z.object({
+      code: z.string().describe('The Python code to execute.'),
+      files: z.array(z.object({
+        name: z.string(),
+        content: z.string().describe('Text content of the file. valid utf-8.')
+      })).optional().describe('Virtual files to create in the sandbox before running the code.')
+    }),
+    execute: async (params) => {
+      const { code, files = [] } = params || {};
+      if (!code) throw new Error("Missing 'code' parameter.");
+
+      try {
+        const result = await e2b.executeCode(code, files);
+        let output = "";
+        if (result.stdout) output += `STDOUT:\n${result.stdout}\n`;
+        if (result.stderr) output += `STDERR:\n${result.stderr}\n`;
+        if (result.error) output += `ERROR:\n${result.error}\n`;
+        if (result.artifacts && result.artifacts.length > 0) {
+          output += `ARTIFACTS GENERATED:\n${result.artifacts.map(a => a.name).join(', ')}`;
+        }
+        if (!output) output = "Code executed successfully with no output.";
+
+        return { success: true, output };
+      } catch (error: any) {
+        return { success: false, output: `Execution failed: ${error.message}` };
+      }
+    }
+  } as ActionTool<{ code: string; files?: { name: string; content: string }[] }>
 
 };
 

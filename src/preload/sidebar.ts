@@ -8,6 +8,7 @@ interface ChatRequest {
     content: string | null;
     text: string | null;
   };
+  file?: { name: string; data: ArrayBuffer };
   messageId: string;
 }
 
@@ -83,8 +84,8 @@ const sidebarAPI = {
 
   // Plan approval/revision
   approvePlan: () => electronAPI.ipcRenderer.invoke("agent:approve-plan"),
-  
-  revisePlan: (feedback: string) => 
+
+  revisePlan: (feedback: string) =>
     electronAPI.ipcRenderer.invoke("agent:revise-plan", feedback),
 
   // Page content access

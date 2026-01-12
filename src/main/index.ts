@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'path';
-import { electronApp, optimizer, is } from '@electron-toolkit/utils';
+import { electronApp, optimizer } from '@electron-toolkit/utils';
 import * as dotenv from 'dotenv';
 import { AppMenu } from './Menu';
 import { EventManager } from './EventManager';
@@ -31,7 +31,7 @@ if (!envLoaded) {
 }
 
 // 1. IMPORT YOUR CUSTOM WINDOW CLASS
-import { Window } from './Window'; 
+import { Window } from './Window';
 
 // 2. USE THE CUSTOM TYPE
 let mainWindow: Window | null = null;

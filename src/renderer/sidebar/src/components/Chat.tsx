@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Square, Sparkles, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain } from 'lucide-react'
+import { ArrowUp, Square, Sparkles, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain, Paperclip, X } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -354,12 +354,14 @@ const PlanVisualization: React.FC<{
 
 // Chat Input Component with pill design
 const ChatInput: React.FC<{
-    onSend: (message: string) => void
+    onSend: (message: string, file?: File) => void
     disabled: boolean
 }> = ({ onSend, disabled }) => {
     const [value, setValue] = useState('')
+    const [file, setFile] = useState<File | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     // Auto-resize textarea
     useEffect(() => {
@@ -372,13 +374,21 @@ const ChatInput: React.FC<{
     }, [value])
 
     const handleSubmit = () => {
-        if (value.trim() && !disabled) {
-            onSend(value.trim())
+        if ((value.trim() || file) && !disabled) {
+            onSend(value.trim(), file || undefined)
             setValue('')
+            setFile(null)
+            if (fileInputRef.current) fileInputRef.current.value = ''
             // Reset textarea height
             if (textareaRef.current) {
                 textareaRef.current.style.height = '24px'
             }
+        }
+    }
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setFile(e.target.files[0])
         }
     }
 
@@ -419,10 +429,47 @@ const ChatInput: React.FC<{
 
             {/* Send Button */}
             <div className="w-full flex items-center gap-1.5 px-1 mt-2 mb-1">
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    className="hidden"
+                />
+
+                {/* Attachment Button */}
+                <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={disabled}
+                    className={cn(
+                        "size-8 rounded-full flex items-center justify-center",
+                        "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                        "transition-colors"
+                    )}
+                    title="Attach file"
+                >
+                    <Paperclip className="size-5" />
+                </button>
+
+                {/* File Preview */}
+                {file && (
+                    <div className="flex items-center gap-2 max-w-[200px] bg-muted/50 px-3 py-1 rounded-full border border-border">
+                        <span className="text-xs truncate max-w-[150px]">{file.name}</span>
+                        <button
+                            onClick={() => {
+                                setFile(null)
+                                if (fileInputRef.current) fileInputRef.current.value = ''
+                            }}
+                            className="hover:text-destructive"
+                        >
+                            <X className="size-3" />
+                        </button>
+                    </div>
+                )}
+
                 <div className="flex-1" />
                 <button
                     onClick={handleSubmit}
-                    disabled={disabled || !value.trim()}
+                    disabled={disabled || (!value.trim() && !file)}
                     className={cn(
                         "size-9 rounded-full flex items-center justify-center",
                         "transition-all duration-200",

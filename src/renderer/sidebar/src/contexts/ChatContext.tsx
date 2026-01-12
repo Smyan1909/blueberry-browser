@@ -42,7 +42,7 @@ interface ChatContextType {
     isPlanAwaitingApproval: boolean
 
     // Chat actions
-    sendMessage: (content: string) => Promise<void>
+    sendMessage: (content: string, file?: File) => Promise<void>
     clearChat: () => void
 
     // Plan approval actions
@@ -83,8 +83,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     const convertedMessages = storedMessages.map((msg: any, index: number) => ({
                         id: `msg-${index}`,
                         role: msg.role,
-                        content: typeof msg.content === 'string' 
-                            ? msg.content 
+                        content: typeof msg.content === 'string'
+                            ? msg.content
                             : msg.content.find((p: any) => p.type === 'text')?.text || '',
                         timestamp: Date.now(),
                         isStreaming: false
@@ -98,17 +98,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loadMessages()
     }, [])
 
-    const sendMessage = useCallback(async (content: string) => {
+    const sendMessage = useCallback(async (content: string, file?: File) => {
         setIsLoading(true)
 
         try {
             const messageId = Date.now().toString()
+            let fileData: { name: string; data: ArrayBuffer } | undefined;
+            if (file) {
+                const arrayBuffer = await file.arrayBuffer();
+                fileData = {
+                    name: file.name,
+                    data: arrayBuffer
+                };
+            }
 
             // Send message to main process (agent handler)
             // The agent will process the message and send responses via chat-response events
             await window.sidebarAPI.sendChatMessage({
                 message: content,
-                messageId: messageId
+                messageId: messageId,
+                file: fileData
             })
 
             // Note: isLoading will be set to false when chat-response event with isComplete: true is received
@@ -206,8 +215,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const convertedMessages = updatedMessages.map((msg: any, index: number) => ({
                 id: `msg-${index}`,
                 role: msg.role,
-                content: typeof msg.content === 'string' 
-                    ? msg.content 
+                content: typeof msg.content === 'string'
+                    ? msg.content
                     : msg.content.find((p: any) => p.type === 'text')?.text || '',
                 timestamp: Date.now(),
                 isStreaming: false
@@ -230,20 +239,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const handleAgentPlan = (plan: Plan) => {
             console.log('[ChatContext] Received plan:', plan)
             setCurrentPlan(plan)
-            
+
             // Check if plan is completed
             if (plan.status === 'completed') {
                 setIsExecuting(false)
                 setIsPlanAwaitingApproval(false)
                 return
             }
-            
+
             // Determine if this is a NEW plan awaiting approval vs an execution update
             const allPending = plan.tasks.every(t => t.status === 'pending')
-            const hasRunningOrCompleted = plan.tasks.some(t => 
+            const hasRunningOrCompleted = plan.tasks.some(t =>
                 t.status === 'running' || t.status === 'completed' || t.status === 'failed'
             )
-            
+
             // Only show approval UI if:
             // 1. Plan is active
             // 2. All tasks are still pending (no execution has started)

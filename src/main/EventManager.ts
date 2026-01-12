@@ -161,7 +161,7 @@ export class EventManager {
     // Chat message - route to agent handler
     ipcMain.handle("sidebar-chat-message", async (_, request) => {
       try {
-        await handleChatMessage(request.message);
+        await handleChatMessage(request.message, request.file);
       } catch (error: any) {
         console.error("[EventManager] Error handling chat message:", error);
         throw error;
