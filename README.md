@@ -32,7 +32,10 @@ We built a computer-use agent from scratch. No prebuilt Gemini CU wrappers here 
     Right now, the agent thinks in a straight line (Singly Linked List). Boring. We plan to upgrade its brain to a **Directed Acyclic Graph (DAG)**. Then, we'll hit it with **Kahn’s Algorithm (TopSort)** to identify parallellizable tasks. Multitasking agents? Game over.
 
 ### Demo Video 1:
-<!-- Insert video of Feature 1 here -->
+[![Blueberry Computer Use Agent Demo]
+(https://img.youtu.be/vi/SalWIP0EZu0/maxresdefault.jpg)]
+(https://youtu.be/SalWIP0EZu0)
+
 
 ---
 
@@ -51,7 +54,9 @@ Why click buttons when you can write Python?
     *   **Concurrent Sandboxes**: Spin up a dedicated sandbox for *every* user. Let them do deep data analysis in isolation. We'll call it "Blueberry Enterprise" and charge 10x for it.
 
 ### Demo Video 2:
-<!-- Insert video of Feature 2 here -->
+[![Blueberry Code Interpreter Demo]
+(https://img.youtu.be/vi/rXaJSPEe5rA/maxresdefault.jpg)]
+(https://youtu.be/rXaJSPEe5rA)
 
 
 
