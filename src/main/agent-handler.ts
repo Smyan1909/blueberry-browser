@@ -262,36 +262,152 @@ export async function handleChatMessage(goal: string, file?: { name: string, dat
     }
 
     try {
-      const result = await handleFileTask(file.data, file.name, goal, llm);
+      const result = await handleFileTask(file.data, file.name, goal, llm, (code, isComplete) => {
+        if (messageManager) {
+          messageManager.handleAgentEvent({
+            type: 'code_preview',
+            agentId: 'file-processor',
+            message: code,
+            timestamp: Date.now(),
+            data: { isComplete }
+          });
+        }
+      });
 
-      let outputText = "File processed successfully.\n";
+      if (messageManager) {
+        messageManager.handleAgentEvent({
+          type: 'result_stream',
+          agentId: 'file-processor',
+          message: "File processed successfully.\n",
+          timestamp: Date.now()
+        });
+      }
 
-      if (result.stdout) {
-        outputText += `\n**Stdout:**\n\`\`\`\n${result.stdout}\n\`\`\``;
+      // Clear the code preview now that execution is done
+      if (messageManager) {
+        messageManager.handleAgentEvent({
+          type: 'code_preview',
+          agentId: 'file-processor',
+          message: '', // Clear the preview
+          timestamp: Date.now(),
+          data: { isComplete: true }
+        });
       }
-      if (result.stderr) {
-        outputText += `\n**Stderr:**\n\`\`\`\n${result.stderr}\n\`\`\``;
+
+      // Use LLM to summarize the output if there is any stdout/stderr
+      if (result.stdout || result.stderr) {
+        try {
+          console.log('[Agent Handler] Streaming summary with LLM...');
+          const stream = await llm.stream([
+            {
+              role: 'system',
+              content: `You are a helpful data analyst assistant. The user asked to analyze a file. 
+Python code was executed to handle this request.
+Your task is to summarize the execution output (STDOUT/STDERR) into a clear, concise natural language response.
+
+Guidelines:
+1. **Focus on the Answer**: Address the user's request directly. What did the data show?
+2. **Interpret Results**: Don't just list numbers; explain what they mean in context.
+3. **Skip Boilerplate**: Do NOT mention "File loaded successfully", "Sheet1 detected", or "Column types are...". Go straight to the insights.
+4. **Ignore Warnings**: Do NOT mention Python warnings (e.g., deprecation warnings, pandas future warnings) unless they caused the code to fail.
+5. **Concise**: Be brief but informative.
+Format your response in Markdown.`
+            },
+            {
+              role: 'user',
+              content: `
+User Request: ${goal}
+
+Execution Output:
+STDOUT:
+${result.stdout}
+
+STDERR:
+${result.stderr}
+`
+            }
+          ]);
+
+          for await (const chunk of stream) {
+            if (messageManager) {
+              messageManager.handleAgentEvent({
+                type: 'result_stream',
+                agentId: 'file-processor',
+                message: chunk,
+                timestamp: Date.now()
+              });
+            }
+          }
+
+          if (messageManager) {
+            messageManager.handleAgentEvent({
+              type: 'result_stream',
+              agentId: 'file-processor',
+              message: '\n',
+              timestamp: Date.now()
+            });
+          }
+
+        } catch (err) {
+          console.error('[Agent Handler] Failed to summarize output:', err);
+          // Fallback to raw output if summarization fails
+          let fallbackMsg = "";
+          if (result.stdout) fallbackMsg += `\n**Stdout:**\n\`\`\`\n${result.stdout}\n\`\`\``;
+          if (result.stderr) fallbackMsg += `\n**Stderr:**\n\`\`\`\n${result.stderr}\n\`\`\``;
+
+          if (messageManager) {
+            messageManager.handleAgentEvent({
+              type: 'result_stream',
+              agentId: 'file-processor',
+              message: fallbackMsg,
+              timestamp: Date.now()
+            });
+          }
+        }
       }
+
       if (result.error) {
-        outputText += `\n**Error:**\n${result.error}`;
+        if (messageManager) {
+          messageManager.handleAgentEvent({
+            type: 'result_stream',
+            agentId: 'file-processor',
+            message: `\n**Execution Error:**\n${result.error}`,
+            timestamp: Date.now()
+          });
+        }
       }
 
       if (result.artifacts && result.artifacts.length > 0) {
-        outputText += `\n\n**Artifacts generated:**\n`;
-        result.artifacts.forEach(a => outputText += `- ${a.name}\n`);
+        let artifactMsg = `\n\n**Artifacts generated:**\n`;
+        result.artifacts.forEach(a => artifactMsg += `- ${a.name}\n`);
+        if (messageManager) {
+          messageManager.handleAgentEvent({
+            type: 'result_stream',
+            agentId: 'file-processor',
+            message: artifactMsg,
+            timestamp: Date.now()
+          });
+        }
       } else if (result.results && result.results.length > 0) {
-
-      } else if (result.results && result.results.length > 0) {
+        let resultMsg = "";
         result.results.forEach(res => {
-          if (res.text) outputText += `\n${res.text}`;
+          if (res.text) resultMsg += `\n${res.text}`;
         });
+        if (messageManager && resultMsg) {
+          messageManager.handleAgentEvent({
+            type: 'result_stream',
+            agentId: 'file-processor',
+            message: resultMsg,
+            timestamp: Date.now()
+          });
+        }
       }
 
       if (messageManager) {
         messageManager.handleAgentEvent({
           type: 'result',
           agentId: 'file-processor',
-          message: outputText,
+          message: '', // Empty message to preserve the streamed content
           timestamp: Date.now(),
           data: { artifacts: result.artifacts }
         });

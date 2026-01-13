@@ -2,9 +2,15 @@ import { E2BService, ExecutionResult } from "../sandbox/e2b-service";
 import { LLMProvider } from "../core/llm";
 
 
-const e2b = new E2BService();
+const e2b = E2BService.getInstance();
 
-export async function handleFileTask(fileBuffer: ArrayBuffer, fileName: string, userPrompt: string, llm: LLMProvider): Promise<ExecutionResult> {
+export async function handleFileTask(
+    fileBuffer: ArrayBuffer,
+    fileName: string,
+    userPrompt: string,
+    llm: LLMProvider,
+    onCodeStream?: (code: string, isComplete: boolean) => void
+): Promise<ExecutionResult> {
 
     const systemPrompt = `
 You are an expert Python Developer and Data Scientist.
@@ -25,22 +31,37 @@ Guidelines:
 5. **Format**: Return ONLY valid Python code. No markdown blocks. No explanations.
     `;
 
-    const response = await llm.generate([{
+    console.log("[FileTask] Streaming Python code generation...");
+
+    let code = '';
+    const stream = llm.stream([{
         role: 'system',
         content: systemPrompt
     }, {
         role: 'user',
         content: `File: ${fileName}\nRequest: ${userPrompt}`
-    }], [], true);
+    }]);
 
-    let code = response.content.trim();
-    if (code.startsWith('```')) {
-        code = code.replace(/^```python\n?/, '').replace(/```$/, '');
+    for await (const chunk of stream) {
+        code += chunk;
+        if (onCodeStream) {
+            onCodeStream(code, false);
+        }
+    }
+
+    // Clean up markdown code blocks
+    if (code.startsWith('\`\`\`')) {
+        code = code.replace(/^\`\`\`python\n?/, '').replace(/\`\`\`$/, '');
+    }
+    code = code.trim();
+
+    // Final update with cleaned code
+    if (onCodeStream) {
+        onCodeStream(code, true);
     }
 
     console.log("[FileTask] Executing generated code...");
     const result = await e2b.processFileWithCode(fileBuffer, fileName, code);
 
     return result;
-
 }

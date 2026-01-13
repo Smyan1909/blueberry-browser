@@ -20,11 +20,11 @@ export class UnifiedLLMProvider implements LLMProvider {
   }
 
   async generate(
-    history: ChatMessage[], 
-    tools?: ToolDefinition[], 
-    jsonMode: boolean = false
+    history: ChatMessage[],
+    tools?: ToolDefinition[],
+    _jsonMode: boolean = false
   ): Promise<LLMResponse> {
-    
+
     // 1. Map Tools (Agent Schema -> Vercel Schema)
     // AI SDK v5 uses 'inputSchema' instead of 'parameters'
     let vercelTools: Record<string, any> | undefined = undefined;
@@ -35,7 +35,7 @@ export class UnifiedLLMProvider implements LLMProvider {
         const jsonSchemaObj = z.toJSONSchema(t.parameters) as Record<string, any>;
         // Remove $schema as some providers don't support draft 2020-12
         delete jsonSchemaObj['$schema'];
-        
+
         acc[t.name] = tool({
           description: t.description,
           // Use jsonSchema wrapper with inputSchema for AI SDK v5
@@ -58,14 +58,14 @@ export class UnifiedLLMProvider implements LLMProvider {
     if (result.toolCalls && result.toolCalls.length > 0) {
       console.log('[LLM Provider] Raw tool calls:', JSON.stringify(result.toolCalls, null, 2));
     }
-    
+
     const toolCalls = result.toolCalls?.map(tc => {
       const tcAny = tc as any;
       // Try multiple possible property names for arguments
       const args = tcAny.args ?? tcAny.arguments ?? tcAny.input ?? {};
-      
+
       console.log(`[LLM Provider] Tool ${tc.toolName}: args=${JSON.stringify(args)}`);
-      
+
       return {
         id: tc.toolCallId,
         name: tc.toolName,
@@ -104,7 +104,7 @@ export class UnifiedLLMProvider implements LLMProvider {
           content: msg.content
         };
       }
-      
+
       // Multimodal content (array of text/image parts)
       const contentParts = (msg.content as MessageContent[]).map(part => {
         if (part.type === 'text') {
@@ -112,8 +112,8 @@ export class UnifiedLLMProvider implements LLMProvider {
         }
         if (part.type === 'image') {
           // Vercel AI SDK expects image as data URL or URL string
-          return { 
-            type: 'image', 
+          return {
+            type: 'image',
             image: `data:${part.image.mediaType};base64,${part.image.data}`
           };
         }

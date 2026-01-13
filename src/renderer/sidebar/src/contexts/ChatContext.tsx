@@ -42,6 +42,10 @@ interface ChatContextType {
     agentThoughts: AgentThought[]
     isPlanAwaitingApproval: boolean
 
+    // Code preview state
+    pendingCode: string | null
+    pendingCodeStatus: string
+
     // Chat actions
     sendMessage: (content: string, file?: File) => Promise<void>
     clearChat: () => void
@@ -72,7 +76,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [currentPlan, setCurrentPlan] = useState<Plan | null>(null)
     const [agentThoughts, setAgentThoughts] = useState<AgentThought[]>([])
     const [isPlanAwaitingApproval, setIsPlanAwaitingApproval] = useState(false)
-    const [isExecuting, setIsExecuting] = useState(false) // Track if execution has started
+    const [_isExecuting, setIsExecuting] = useState(false)
+    const [pendingCode, setPendingCode] = useState<string | null>(null)
+    const [pendingCodeStatus, setPendingCodeStatus] = useState<string>("Writing code for task...")
 
     // Load initial messages from main process
     useEffect(() => {
@@ -207,8 +213,37 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const handleChatResponse = (data: { messageId: string; content: string; isComplete: boolean }) => {
             if (data.isComplete) {
                 setIsLoading(false)
+                setPendingCode(null)
+                setPendingCodeStatus("Writing code for task...")
             }
-            // Note: The actual message content is handled via chat-messages-updated event
+
+            // Update the streaming message in the UI
+            setMessages(prev => {
+                const newMessages = [...prev]
+                const lastMsg = newMessages[newMessages.length - 1]
+
+                // If the last message is from assistant and matches the streaming ID/flow, update it
+                // Or if we need to append a new assistant message for the stream
+                if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+                    lastMsg.content = data.content
+                    if (data.isComplete) {
+                        lastMsg.isStreaming = false
+                    }
+                    return newMessages
+                } else if (!data.isComplete || (lastMsg?.role === 'user')) {
+                    // Append new streaming message if it doesn't exist
+                    newMessages.push({
+                        id: data.messageId,
+                        role: 'assistant',
+                        content: data.content,
+                        timestamp: Date.now(),
+                        isStreaming: !data.isComplete
+                    })
+                    return newMessages
+                }
+
+                return prev
+            })
         }
 
         // Listen for message updates from main process
@@ -281,21 +316,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
         }
 
-        // Listen for agent actions (optional - we could display these too)
+        // Listen for agent actions - clear code preview when action completes
         const handleAgentAction = (action: { agentId: string; message: string; data?: any; timestamp: number }) => {
             console.log('[ChatContext] Agent action:', action.message)
-            // Update the plan task status if we can match it
-            // For now, we rely on the plan updates from main process
+            if (action.message.includes('Result:') || action.message.includes('STDOUT') || action.message.includes('executed')) {
+                setPendingCode(null)
+                setPendingCodeStatus("Writing code for task...")
+            }
+        }
+
+        const handleAgentCodePreview = (data: { agentId: string; code: string; timestamp: number; data?: { isComplete: boolean } }) => {
+            console.log('[ChatContext] Code preview received')
+            setPendingCode(data.code)
+
+            if (data.data?.isComplete) {
+                setPendingCodeStatus("Executing Python...")
+            } else {
+                setPendingCodeStatus("Writing code for task...")
+            }
         }
 
         window.sidebarAPI.onAgentPlan(handleAgentPlan)
         window.sidebarAPI.onAgentThought(handleAgentThought)
         window.sidebarAPI.onAgentAction(handleAgentAction)
+        window.sidebarAPI.onAgentCodePreview(handleAgentCodePreview)
 
         return () => {
             window.sidebarAPI.removeAgentPlanListener()
             window.sidebarAPI.removeAgentThoughtListener()
             window.sidebarAPI.removeAgentActionListener()
+            window.sidebarAPI.removeAgentCodePreviewListener()
         }
     }, [])
 
@@ -305,6 +355,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentPlan,
         agentThoughts,
         isPlanAwaitingApproval,
+        pendingCode,
+        pendingCodeStatus,
         sendMessage,
         clearChat,
         approvePlan,

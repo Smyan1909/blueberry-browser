@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Square, Sparkles, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain, Paperclip, X } from 'lucide-react'
+import { ArrowUp, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain, Paperclip, X } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -60,6 +60,7 @@ const StreamingText: React.FC<{ content: string }> = ({ content }) => {
             }, 10)
             return () => clearTimeout(timer)
         }
+        return undefined
     }, [content, currentIndex])
 
     return (
@@ -174,6 +175,29 @@ const AssistantMessage: React.FC<{ message: Message }> = ({ message }) => (
     </div>
 )
 
+// Code Preview Panel - shows Python code before execution
+const CodePreviewPanel: React.FC<{ code: string; status?: string }> = ({ code, status = "Executing Python..." }) => {
+    const preRef = useRef<HTMLPreElement>(null)
+
+    useEffect(() => {
+        if (preRef.current) {
+            preRef.current.scrollTop = preRef.current.scrollHeight
+        }
+    }, [code])
+
+    return (
+        <div className="animate-fade-in rounded-xl border border-primary/30 bg-muted/30 overflow-hidden mb-4">
+            <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 border-b border-primary/20">
+                <Loader2 className="size-4 text-primary animate-spin" />
+                <span className="text-sm font-medium text-primary">{status}</span>
+            </div>
+            <pre ref={preRef} className="p-4 text-sm overflow-x-auto max-h-[300px] overflow-y-auto">
+                <code className="text-foreground">{code}</code>
+            </pre>
+        </div>
+    )
+}
+
 // Loading Indicator with spinning blueberry logo
 const LoadingIndicator: React.FC = () => {
     const [isVisible, setIsVisible] = useState(false)
@@ -239,7 +263,7 @@ interface Task {
     dependencies: string[]
 }
 
-const PlanTaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => (
+const PlanTaskItem: React.FC<{ task: Task; index: number }> = ({ task, index: _index }) => (
     <div className={cn(
         "flex items-start gap-3 py-2 px-3 rounded-lg transition-colors",
         task.status === 'running' && "bg-blue-500/10",
@@ -568,7 +592,7 @@ const ConversationTurnComponent: React.FC<{
 
 // Main Chat Component
 export const Chat: React.FC = () => {
-    const { messages, isLoading, sendMessage, clearChat, currentPlan, agentThoughts, isPlanAwaitingApproval, approvePlan, revisePlan } = useChat()
+    const { messages, isLoading, sendMessage, clearChat, currentPlan, agentThoughts, isPlanAwaitingApproval, approvePlan, revisePlan, pendingCode, pendingCodeStatus } = useChat()
     const scrollRef = useAutoScroll(messages)
 
     // Group messages into conversation turns
@@ -652,6 +676,9 @@ export const Chat: React.FC = () => {
                                     onRevise={revisePlan}
                                 />
                             ))}
+
+                            {/* Code Preview Panel */}
+                            {pendingCode && <CodePreviewPanel code={pendingCode} status={pendingCodeStatus} />}
                         </>
                     )}
 

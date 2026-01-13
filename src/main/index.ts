@@ -75,6 +75,13 @@ app.whenReady().then(() => {
     const sidebarWebContents = mainWindow.sidebar.view.webContents;
     setupAgentHandler(mainWindow, sidebarWebContents);
 
+    // Pre-warm E2B sandbox in background (don't block app startup)
+    import('../automation/sandbox/e2b-service').then(({ E2BService }) => {
+      E2BService.getInstance().warmUp().catch(err => {
+        console.warn('[Main] Failed to pre-warm E2B sandbox:', err.message);
+      });
+    });
+
     // Note: The active tab already loads Google by default (set in Tab constructor)
     // No need to override it here
   }

@@ -82,6 +82,15 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("agent-action");
   },
 
+  // Agent code preview events
+  onAgentCodePreview: (callback: (data: { agentId: string; code: string; timestamp: number }) => void) => {
+    electronAPI.ipcRenderer.on("agent-code-preview", (_, data) => callback(data));
+  },
+
+  removeAgentCodePreviewListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent-code-preview");
+  },
+
   // Plan approval/revision
   approvePlan: () => electronAPI.ipcRenderer.invoke("agent:approve-plan"),
 

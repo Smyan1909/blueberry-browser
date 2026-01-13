@@ -75,7 +75,7 @@ export class DomService {
                 throw new Error("Page analysis returned empty result.");
             }
 
-            const { tree, mapCount } = rawResult;
+            const { tree, mapCount: _mapCount } = rawResult;
 
             await this.rebuildSelectorMap();
 

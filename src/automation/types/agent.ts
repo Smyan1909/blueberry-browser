@@ -8,7 +8,8 @@ export type AgentEventType =
     | 'call_worker'
     | 'error'
     | 'result'
-    | 'result_stream';
+    | 'result_stream'
+    | 'code_preview';
 
 
 export interface AgentEvent {

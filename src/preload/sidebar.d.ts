@@ -80,6 +80,10 @@ interface SidebarAPI {
   onAgentAction: (callback: (action: AgentAction) => void) => void;
   removeAgentActionListener: () => void;
 
+  // Agent code preview events
+  onAgentCodePreview: (callback: (data: { agentId: string; code: string; timestamp: number; data?: { isComplete: boolean } }) => void) => void;
+  removeAgentCodePreviewListener: () => void;
+
   // Plan approval/revision
   approvePlan: () => Promise<{ success: boolean; error?: string }>;
   revisePlan: (feedback: string) => Promise<{ success: boolean; plan?: Plan; error?: string }>;

@@ -9,7 +9,7 @@ import { createAgentWorkerPage, closeAgentWorkerPage } from '../../main/tab-cdp-
 
 export class BrowserAgent {
 
-    private context: BrowserContext;
+    private _context: BrowserContext;
     private page: Page;
     private llm: LLMProvider;
     private planner: Planner;
@@ -17,17 +17,20 @@ export class BrowserAgent {
 
     private currentPlan: Plan | null = null;
     private memory: MemoryManager;
-    private isRunning: boolean = false;
+    private _isRunning: boolean = false;
     private currentDom: DomService | null = null; // Track active DomService for overlay updates
 
     constructor(context: BrowserContext, page: Page, llm: LLMProvider, config: AgentConfig) {
-        this.context = context;
+        this._context = context;
         this.page = page;
         this.llm = llm;
         this.planner = new Planner(llm);
         this.config = config;
         this.memory = new MemoryManager(llm);
     }
+
+    get browserContext() { return this._context; }
+    get running() { return this._isRunning; }
 
     async plan(goal: string) {
 
@@ -222,7 +225,7 @@ export class BrowserAgent {
             return;
         }
 
-        this.isRunning = true;
+        this._isRunning = true;
         this.emit('thought', 'Plan approved. Starting execution...');
 
         try {
@@ -248,7 +251,7 @@ export class BrowserAgent {
         } catch (error: any) {
             this.emit('error', `Orchestrator Error: ${error.message}`);
         } finally {
-            this.isRunning = false;
+            this._isRunning = false;
         }
     }
 
@@ -534,7 +537,10 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                         const result = await tool.execute(toolArgs, {
                             page: activePage,
                             selectorMap: state.selectorMap,
-                            domService: activeDom
+                            domService: activeDom,
+                            onCodePreview: (code: string) => {
+                                this.emit('code_preview', code);
+                            }
                         });
 
                         this.emit('action', `[${subGoal}] Result: ${result.output}`);

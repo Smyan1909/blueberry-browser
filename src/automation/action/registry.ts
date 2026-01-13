@@ -3,7 +3,7 @@ import { Page, ElementHandle } from 'playwright';
 import { DomService } from '../dom';
 import { E2BService } from '../sandbox/e2b-service';
 
-const e2b = new E2BService();
+const e2b = E2BService.getInstance();
 
 export interface ActionTool<T = any> {
   name: string;
@@ -16,6 +16,7 @@ export interface ActionContext {
   page: Page;
   selectorMap: Map<number, ElementHandle>;
   domService: DomService;
+  onCodePreview?: (code: string) => void;
 }
 
 export interface ActionResult {
@@ -364,9 +365,13 @@ export const ActionRegistry = {
         content: z.string().describe('Text content of the file. valid utf-8.')
       })).optional().describe('Virtual files to create in the sandbox before running the code.')
     }),
-    execute: async (params) => {
+    execute: async (params, context) => {
       const { code, files = [] } = params || {};
       if (!code) throw new Error("Missing 'code' parameter.");
+
+      if (context?.onCodePreview) {
+        context.onCodePreview(code);
+      }
 
       try {
         const result = await e2b.executeCode(code, files);

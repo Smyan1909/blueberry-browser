@@ -78,6 +78,17 @@ export class AgentMessageManager {
         }
         break;
 
+      case 'code_preview':
+        if (!this.webContents.isDestroyed()) {
+          this.webContents.send('agent-code-preview', {
+            agentId: event.agentId,
+            code: event.message,
+            timestamp: event.timestamp,
+            data: event.data
+          });
+        }
+        break;
+
       case 'result_stream':
         // Accumulate streaming chunks
         this.currentResponseContent += event.message;

@@ -9,10 +9,32 @@ export interface ExecutionResult {
     artifacts?: { name: string; data: string }[];
 }
 
+let sharedInstance: E2BService | null = null;
+
 export class E2BService {
     private sandbox: Sandbox | null = null;
+    private warmingUp: Promise<Sandbox> | null = null;
+
+    static getInstance(): E2BService {
+        if (!sharedInstance) {
+            sharedInstance = new E2BService();
+        }
+        return sharedInstance;
+    }
+
+    async warmUp(): Promise<void> {
+        if (this.sandbox || this.warmingUp) return;
+        console.log("[E2B] Pre-warming sandbox...");
+        this.warmingUp = Sandbox.create();
+        this.sandbox = await this.warmingUp;
+        this.warmingUp = null;
+        console.log("[E2B] Sandbox ready!");
+    }
 
     async getSandbox(): Promise<Sandbox> {
+        if (this.warmingUp) {
+            return this.warmingUp;
+        }
         if (!this.sandbox) {
             console.log("Creating new E2B sandbox...");
             this.sandbox = await Sandbox.create();
