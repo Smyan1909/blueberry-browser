@@ -33,7 +33,7 @@ We built a computer-use agent from scratch. No prebuilt Gemini CU wrappers here 
 
 ### Demo Video 1:
 [![Blueberry Computer Use Agent Demo]
-(https://img.youtu.be/vi/SalWIP0EZu0/maxresdefault.jpg)]
+(https://img.youtube.com/vi/SalWIP0EZu0/maxresdefault.jpg)]
 (https://youtu.be/SalWIP0EZu0)
 
 
@@ -55,7 +55,7 @@ Why click buttons when you can write Python?
 
 ### Demo Video 2:
 [![Blueberry Code Interpreter Demo]
-(https://img.youtu.be/vi/rXaJSPEe5rA/maxresdefault.jpg)]
+(https://img.youtube.com/vi/rXaJSPEe5rA/maxresdefault.jpg)]
 (https://youtu.be/rXaJSPEe5rA)
 
 
