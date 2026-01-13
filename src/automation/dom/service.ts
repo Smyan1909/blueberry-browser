@@ -172,51 +172,74 @@ export class DomService {
             if (!cursor) {
                 cursor = document.createElement('div');
                 cursor.id = 'blueberry-cursor';
-                cursor.style.position = 'fixed';
-                cursor.style.zIndex = '2147483647';
-                cursor.style.pointerEvents = 'none';
-                cursor.style.transition = 'transform 0.3s ease-out, top 0.3s, left 0.3s';
-                cursor.style.top = '0';
-                cursor.style.left = '0';
+                Object.assign(cursor.style, {
+                    position: 'fixed',
+                    zIndex: '2147483647',
+                    pointerEvents: 'none',
+                    transition: 'transform 0.3s ease-out, top 0.3s, left 0.3s',
+                    top: '0',
+                    left: '0'
+                });
 
-                // Helper to set innerHTML safely (Trusted Types)
-                const setInnerHTML = (el: Element, html: string) => {
-                    if (window.trustedTypes && window.trustedTypes.createPolicy) {
-                        const policy = window.trustedTypes.createPolicy('blueberry-policy', {
-                            createHTML: (string) => string
-                        });
-                        el.innerHTML = policy.createHTML(html) as any;
-                    } else {
-                        el.innerHTML = html;
-                    }
-                };
+                // 3D Pixel Cursor SVG (Purple/Pink Gradient Style)
+                const cursorSvg = `
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.3));">
+                    <defs>
+                        <linearGradient id="sexy_gradient" x1="2" y1="2" x2="22" y2="28" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#C084FC" /> <stop offset="1" stop-color="#EC4899" /> </linearGradient>
+                    </defs>
+
+                    <path d="M4 2 L13 26 L17 15 L28 11 L4 2 Z" 
+                        fill="url(#sexy_gradient)" 
+                        stroke="white" 
+                        stroke-width="2" 
+                        stroke-linejoin="round"
+                    />
+                </svg>`;
 
                 const arrow = document.createElement('div');
-                setInnerHTML(arrow, `
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M5.65376 12.3673H5.46026L5.31717 12.4976L0.500002 16.8829L0.500002 1.19841L11.7841 12.3673H5.65376Z" fill="#0EA5E9" stroke="white"/>
-                  </svg>`);
+                arrow.innerHTML = cursorSvg;
 
+                // Add label tag
                 const tag = document.createElement('div');
                 tag.id = 'blueberry-cursor-label';
                 tag.innerText = label;
                 Object.assign(tag.style, {
                     position: 'absolute',
-                    top: '16px',
+                    top: '18px',
                     left: '12px',
-                    backgroundColor: '#0EA5E9', // Sky blue
+                    background: 'linear-gradient(135deg, #C084FC, #EC4899)',
                     color: 'white',
-                    padding: '2px 8px',
+                    padding: '2px 6px',
                     borderRadius: '4px',
-                    fontSize: '12px',
-                    fontWeight: 'bold',
+                    fontSize: '10px',
+                    fontWeight: '600',
                     whiteSpace: 'nowrap',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    boxShadow: '0px 2px 4px rgba(0,0,0,0.15)',
+                    border: '1.5px solid white',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                    transformOrigin: 'top left'
                 });
 
                 cursor.appendChild(arrow);
                 cursor.appendChild(tag);
                 document.body.appendChild(cursor);
+
+                // Add hover animation style
+                const style = document.createElement('style');
+                style.id = 'blueberry-cursor-style';
+                style.innerHTML = `
+                    @keyframes blueberry-float {
+                        0% { transform: translateY(0px); }
+                        50% { transform: translateY(-3px); }
+                        100% { transform: translateY(0px); }
+                    }
+                    #blueberry-cursor > div:first-child {
+                        animation: blueberry-float 2s ease-in-out infinite;
+                    }
+                `;
+                document.head.appendChild(style);
+
             } else {
                 // Update the label if it exists
                 const tag = document.getElementById('blueberry-cursor-label');
@@ -272,8 +295,7 @@ export class DomService {
                 width: '100vw',
                 height: '100vh',
                 zIndex: '2147483646', // Just below the cursor/highlight layer
-                backgroundColor: 'rgba(0, 0, 0, 0.05)', // Slight dim
-                border: '6px solid #0EA5E9', // Sky blue border
+                // Background and border handled by CSS class for gradients
                 boxSizing: 'border-box',
                 pointerEvents: 'none', // Let clicks pass through to page elements
                 fontFamily: 'sans-serif'
@@ -311,12 +333,17 @@ export class DomService {
 
             const style = document.createElement('style');
             setInnerHTML(style, `
-                @keyframes pulse-border {
-                    0% { border-color: rgba(14, 165, 233, 0.5); }
-                    50% { border-color: rgba(14, 165, 233, 1); }
-                    100% { border-color: rgba(14, 165, 233, 0.5); }
+                #${overlayId} {
+                    background: radial-gradient(circle, transparent 50%, rgba(14, 165, 233, 0.15) 100%);
+                    box-shadow: inset 0 0 100px rgba(14, 165, 233, 0.3);
+                    border: 12px solid #0EA5E9;
                 }
-                #${overlayId} { animation: pulse-border 2s infinite; }
+                @keyframes pulse-border-thick {
+                    0% { border-color: rgba(14, 165, 233, 0.6); }
+                    50% { border-color: rgba(14, 165, 233, 1); }
+                    100% { border-color: rgba(14, 165, 233, 0.6); }
+                }
+                #${overlayId} { animation: pulse-border-thick 3s infinite ease-in-out; }
             `);
 
             document.head.appendChild(style);
