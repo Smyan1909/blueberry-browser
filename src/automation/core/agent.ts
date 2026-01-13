@@ -159,7 +159,8 @@ export class BrowserAgent {
     }
 
     private async executePathInAgent(path: Task[], pathIndex: number) {
-        this.emit('thought', `[Agent ${pathIndex}] Starting path with ${path.length} tasks`);
+        // Use "Gloria" for the primary agent (index 0), and numbered variants if parallel
+        const agentName = pathIndex === 0 ? 'Gloria' : `Gloria-${pathIndex + 1}`;
 
         let workerPage: Page | null = null;
         let tabId: string | null = null;
@@ -173,27 +174,29 @@ export class BrowserAgent {
             tabId = result.tabId;
 
             const workerDom = new DomService(workerPage);
-            await workerDom.enableSpectatorMode(`Agent-${pathIndex}`);
+            await workerDom.enableSpectatorMode(agentName);
             this.currentDom = workerDom; // Store reference for overlay updates
 
             // Execute each task in sequence on this ONE tab
             for (const task of path) {
                 task.status = 'running';
-                // Emit as action so it doesn't overwrite the "Reasoning" thought in the UI
-                this.emit('action', `[Agent ${pathIndex}] Executing task ${task.id}: "${task.description}"`);
+
+                // Emit natural language action log
+                this.emit('action', `Executing task: "${task.description}"`, {});
                 this.emit('plan', 'Task running', this.currentPlan);
 
                 const result = await this.runThinkActObserveLoop(
                     workerPage,
                     workerDom,
                     task.description,
-                    this.currentPlan!.goal
+                    this.currentPlan!.goal,
+                    agentName
                 );
 
                 task.status = result.success ? 'completed' : 'failed';
                 // Store the result summary on the task for final summary generation
                 (task as any).result = result.summary;
-                this.emit('action', `[Agent ${pathIndex}] Task ${task.id} ${result.success ? 'completed' : 'failed'}`);
+
                 this.emit('plan', 'Task updated', this.currentPlan);
 
                 if (!result.success) {
@@ -208,7 +211,7 @@ export class BrowserAgent {
             this.currentDom = null;
 
         } catch (error: any) {
-            this.emit('error', `[Agent ${pathIndex}] Error: ${error.message}`);
+            this.emit('error', `[${agentName}] Error: ${error.message}`);
             path.forEach(t => { if (t.status === 'pending' || t.status === 'running') t.status = 'failed'; });
         } finally {
             // Close the agent's tab
@@ -221,17 +224,14 @@ export class BrowserAgent {
     async execute() {
         if (!this.currentPlan) throw new Error('No plan to execute');
         if (this.currentPlan.status === 'completed') {
-            this.emit('thought', 'Plan already completed.');
             return;
         }
 
         this._isRunning = true;
-        this.emit('thought', 'Plan approved. Starting execution...');
 
         try {
             // Find all execution paths through the DAG
             const paths = this.findExecutionPaths();
-            this.emit('thought', `Identified ${paths.length} execution path(s)`);
 
             // Execute all paths in parallel (each in its own agent/tab)
             const pathPromises = paths.map((path, index) =>
@@ -255,11 +255,19 @@ export class BrowserAgent {
         }
     }
 
-    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string, mainGoal: string): Promise<{ success: boolean; summary: string }> {
+    private async runThinkActObserveLoop(page: Page, dom: DomService, subGoal: string, mainGoal: string, agentName: string = 'Gloria'): Promise<{ success: boolean; summary: string }> {
         // System prompt as constant - passed FRESH to LLM each iteration (never summarized/lost)
-        const systemPrompt = `You are a browser automation agent completing: "${subGoal}"
+        const systemPrompt = `You are ${agentName}, an intelligent browser automation agent working on: "${subGoal}"
 
 🎯 MAIN GOAL: "${mainGoal}"
+
+Using the available tools, complete the sub-goal efficiently. 
+
+## THOUGHT PROCESS
+Before taking action, you must explain your reasoning in clear, natural language.
+- Speak like a human (e.g., "I see the search bar, I'll type 'Blueberry' now.").
+- Avoid robotic logs like "Action: click(12)".
+- If you are stuck, explain why and what you are looking for.
 
 ## TOOLS
 - navigate({ url }) - Go to URL
@@ -471,7 +479,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
             const tools = this.getToolsForLLM();
             const response = await this.llm.generate(context, tools);
 
-            this.emit('thought', `[${subGoal}] ${response.content}`);
+            this.emit('thought', `${response.content}`);
             await activeDom.updateSpectatorThought(response.content);
 
             // Track reasoning in memory for continuity
@@ -486,7 +494,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                     // Ensure arguments is always an object (defensive handling)
                     const toolArgs = call.arguments ?? {};
 
-                    this.emit('action', `[${subGoal}] Executing ${call.name}`, toolArgs);
+                    this.emit('action', `Executing ${call.name}`, toolArgs);
                     console.log(`[Agent] Tool call: ${call.name}, args:`, JSON.stringify(toolArgs));
 
                     // Handle switch_to_tab specially - it modifies activeTabIndex
@@ -495,7 +503,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                         if (agentTabs.has(tabIndex)) {
                             activeTabIndex = tabIndex;
                             const result = `Switched to tab ${tabIndex}: ${agentTabs.get(tabIndex)!.url}`;
-                            this.emit('action', `[${subGoal}] ${result}`);
+                            this.emit('action', `${result}`);
 
                             actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Switched' });
                             continue;
@@ -519,7 +527,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                                 await tab.dom.disableSpectatorMode().catch(() => { });
                                 await tab.page.close();
                                 const result = `Closed tab ${tabIndex}`;
-                                this.emit('action', `[${subGoal}] ${result}`);
+                                this.emit('action', `${result}`);
 
                                 actionsTaken.push({ step: stepCount, action: call.name, target: tabIndex, result: 'Closed' });
                             } catch (err: any) {
@@ -543,7 +551,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
                             }
                         });
 
-                        this.emit('action', `[${subGoal}] Result: ${result.output}`);
+                        this.emit('action', `Result: ${result.output}`);
                         workerMem.add('user', `Tool ${call.name}: ${result.output.substring(0, 200)}`);
 
                         // Track action for loop prevention
@@ -702,7 +710,7 @@ Is "${subGoal}" complete? If YES → task_complete! If NO → what's next?`
         }
 
         // Also update the in-page spectator overlay for thought/action events
-        if ((type === 'thought' || type === 'action') && this.currentDom) {
+        if (type === 'thought' && this.currentDom) {
             // Fire and forget - don't await to avoid blocking
             this.currentDom.updateSpectatorThought(message).catch(() => {
                 // Ignore errors - page might have navigated
