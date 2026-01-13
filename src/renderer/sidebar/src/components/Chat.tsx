@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { ArrowUp, Plus, CheckCircle2, Circle, Loader2, XCircle, Clock, Brain, Paperclip, X } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
@@ -85,7 +88,8 @@ const Markdown: React.FC<{ content: string }> = ({ content }) => (
                     prose-pre:bg-muted dark:prose-pre:bg-muted/50 prose-pre:p-3 
                     prose-pre:rounded-lg prose-pre:overflow-x-auto">
         <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
+            remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
             components={{
                 // Custom code block styling
                 code: ({ node, className, children, ...props }) => {

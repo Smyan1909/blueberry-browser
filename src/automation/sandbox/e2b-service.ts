@@ -62,7 +62,7 @@ export class E2BService {
             }
 
             console.log('Running code ...');
-            const execution = await sandbox.runCode(code);
+            const execution = await sandbox.runCode(code, { timeoutMs: 600000 });
 
             if (execution.error) {
 

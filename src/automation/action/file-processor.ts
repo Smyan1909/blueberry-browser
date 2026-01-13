@@ -26,6 +26,10 @@ Guidelines:
    - If the user asks for a plot/chart, use \`matplotlib\` or \`seaborn\`.
    - ALWAYS save plots to a file (e.g., \`plt.savefig('plot.png')\`). Do NOT use \`plt.show()\`.
 4. **Output**: 
+   - When printing metrics or creating results, convert numpy types to native Python: 
+   - Use \`int(value)\` for integers
+   - Use \`float(value)\` for floats
+   - Use \`.tolist()\` for numpy arrays
    - Print insights and text results to stdout.
    - If generating new files (plots, transformed data), save them to the current directory '.'.
 5. **Format**: Return ONLY valid Python code. No markdown blocks. No explanations.
